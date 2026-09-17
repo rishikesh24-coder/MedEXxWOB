@@ -125,6 +125,8 @@ export const App = () => {
 
               {/* Authentication & Security Routes */}
               <Route path="/login" element={<LoginPage />} />
+              <Route path="/admin/login" element={<Navigate to="/login?role=admin" replace />} />
+              <Route path="/admin-login" element={<Navigate to="/login?role=admin" replace />} />
               <Route path="/hospital-signup" element={<HospitalSignupPage />} />
               <Route path="/admin-signup" element={<AdminSignupPage />} />
               <Route path="/forgot-password" element={<ForgotPasswordPage />} />

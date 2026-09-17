@@ -101,27 +101,32 @@ export const AdminVerification = () => {
   }, [hospitals, searchParams, location.state]);
 
   // Summary Metrics (Req 18: Prioritize Pending Reviews)
-  const pendingCount = hospitals.filter((h) => 
-    h.status === 'pending' || h.status === 'pending_approval' || h.status === 'documents_missing'
-  ).length;
-  const underReviewCount = hospitals.filter((h) => h.status === 'under_review').length;
-  const approvedCount = hospitals.filter((h) => h.status === 'verified' || h.status === 'approved').length;
-  const rejectedCount = hospitals.filter((h) => h.status === 'rejected').length;
+  const pendingCount = hospitals.filter((h) => {
+    const s = (h.status || '').toLowerCase();
+    return s === 'pending' || s === 'pending_approval' || s === 'documents_missing';
+  }).length;
+  const underReviewCount = hospitals.filter((h) => (h.status || '').toLowerCase() === 'under_review').length;
+  const approvedCount = hospitals.filter((h) => {
+    const s = (h.status || '').toLowerCase();
+    return s === 'verified' || s === 'approved';
+  }).length;
+  const rejectedCount = hospitals.filter((h) => (h.status || '').toLowerCase() === 'rejected').length;
 
   // Filtered Hospitals for Current Queue (Req 7, Req 19)
   const tabHospitals = useMemo(() => {
     return hospitals.filter((h) => {
+      const s = (h.status || '').toLowerCase();
       if (activeTab === 'pending') {
-        return h.status === 'pending' || h.status === 'pending_approval' || h.status === 'documents_missing';
+        return s === 'pending' || s === 'pending_approval' || s === 'documents_missing';
       }
       if (activeTab === 'under_review') {
-        return h.status === 'under_review';
+        return s === 'under_review';
       }
       if (activeTab === 'verified') {
-        return h.status === 'verified' || h.status === 'approved';
+        return s === 'verified' || s === 'approved';
       }
       if (activeTab === 'rejected') {
-        return h.status === 'rejected';
+        return s === 'rejected';
       }
       return true; // 'all'
     });

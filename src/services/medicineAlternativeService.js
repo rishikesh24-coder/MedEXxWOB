@@ -176,6 +176,12 @@ export const normalizeRoute = (route, dosageForm = '') => {
   return 'Oral';
 };
 
+const compositionCache = new Map();
+
+export const clearCompositionCache = () => {
+  compositionCache.clear();
+};
+
 /**
  * Extracts structured composition from a medicine record.
  * Handles both medicines with pre-structured `activeIngredients`
@@ -189,6 +195,11 @@ export const extractMedicineComposition = (medicine) => {
       route: 'Unknown',
       canonicalKey: '',
     };
+  }
+
+  const cacheKey = medicine.id || `${medicine.brandName || ''}_${medicine.genericName || ''}_${medicine.power || ''}_${medicine.dosageForm || ''}`;
+  if (cacheKey && compositionCache.has(cacheKey)) {
+    return compositionCache.get(cacheKey);
   }
 
   let ingredients = [];
@@ -218,14 +229,7 @@ export const extractMedicineComposition = (medicine) => {
       // Check if power has multiple numbers e.g. "500mg/125mg" or "625mg"
       const powerMatches = [...power.matchAll(/([\d.]+)\s*(mg|g|mcg|ml)?/gi)];
       
-      if (parts.length === 2 && powerMatches.length >= 2) {
-        const s1 = normalizeStrength(powerMatches[0][1], powerMatches[0][2]);
-        const s2 = normalizeStrength(powerMatches[1][1], powerMatches[1][2]);
-        ingredients = [
-          { name: normalizeIngredientName(parts[0]), strength: s1.strength, unit: s1.unit },
-          { name: normalizeIngredientName(parts[1]), strength: s2.strength, unit: s2.unit }
-        ];
-      } else if (generic.toLowerCase().includes('augmentin') || generic.toLowerCase().includes('clavulan') || power.includes('625')) {
+      if (generic.toLowerCase().includes('augmentin') || generic.toLowerCase().includes('clavulan') || power.includes('625')) {
         // Standard Augmentin / Clavam 625 formulation: 500mg Amox + 125mg Clav
         ingredients = [
           { name: 'amoxicillin', strength: 500, unit: 'mg' },
@@ -264,12 +268,18 @@ export const extractMedicineComposition = (medicine) => {
 
   const canonicalKey = getCompositionKey({ activeIngredients: ingredients, dosageForm, route });
 
-  return {
+  const result = {
     activeIngredients: ingredients,
     dosageForm,
     route,
     canonicalKey,
   };
+
+  if (cacheKey) {
+    compositionCache.set(cacheKey, result);
+  }
+
+  return result;
 };
 
 /**

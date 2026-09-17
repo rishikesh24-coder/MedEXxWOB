@@ -44,7 +44,10 @@ export const AdminHospitals = () => {
   // DERIVE APPROVED HOSPITALS ONLY (Req: Separate Approved Hospitals from Verification)
   // This page must show ONLY hospitals that have already been approved by an Admin.
   const approvedHospitals = useMemo(() => {
-    return hospitals.filter((h) => h.status === 'verified' || h.status === 'approved');
+    return hospitals.filter((h) => {
+      const s = (h.status || '').toLowerCase();
+      return s === 'verified' || s === 'approved';
+    });
   }, [hospitals]);
 
   // Compute stats per approved hospital

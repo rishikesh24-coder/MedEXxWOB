@@ -1,5 +1,6 @@
 import React, { useMemo, useState, useEffect, useRef } from "react";
 import { useSearchParams, useLocation, useNavigate } from "react-router-dom";
+import { useSelector } from "react-redux";
 import {
   AlertCircle,
   Calendar,
@@ -15,6 +16,9 @@ import {
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { auditService } from "../../services/auditService";
+import { getStoredItem, KEYS } from "../../services/storage";
+import { hospitalService } from "../../services/hospitalService";
+import { formatDate } from "../../utils/formatters";
 import "./IncomingRequests.css";
 
 /*
@@ -38,6 +42,58 @@ import "./IncomingRequests.css";
 
   Backend/API integration can be connected later.
 */
+
+function normalizeIncomingRequest(r, hospitalsMap = {}, medicinesMap = {}) {
+  const hosp = hospitalsMap[r.fromHospitalId] || {};
+  const med = medicinesMap[r.medicineId] || {};
+
+  let reqDateStr = "17 Sep 2026";
+  let reqTimeStr = "10:30 AM";
+  if (r.requestDate) {
+    try {
+      const d = new Date(r.requestDate);
+      if (!isNaN(d.getTime())) {
+        reqDateStr = d.toLocaleDateString("en-GB", { day: 'numeric', month: 'short', year: 'numeric' });
+        reqTimeStr = d.toLocaleTimeString("en-US", { hour: '2-digit', minute: '2-digit' });
+      }
+    } catch (e) {}
+  }
+
+  let normalizedStatus = "Pending";
+  const s = (r.status || "").toLowerCase();
+  if (s === "accepted" || s === "approved") normalizedStatus = "Accepted";
+  else if (s === "rejected" || s === "declined" || s === "cancelled" || s === "expired") normalizedStatus = "Rejected";
+  else normalizedStatus = "Pending";
+
+  return {
+    id: r.id,
+    orderId: r.orderId,
+    transactionId: r.transactionId,
+    hospital: r.fromHospitalName || hosp.name || "Requester Hospital",
+    hospitalCode: hosp.code || (r.fromHospitalId ? r.fromHospitalId.toUpperCase() : "HOSP"),
+    fromHospitalId: r.fromHospitalId,
+    toHospitalId: r.toHospitalId,
+    medicine: r.medicineName || med.brandName || med.name || "Medicine",
+    genericName: r.genericName || med.genericName || r.medicineName || "Generic Medicine",
+    composition: r.composition || med.composition || r.power || med.power || "Standard Formulation",
+    form: r.form || med.dosageForm || "Tablet",
+    quantity: Number(r.quantity || 0),
+    unit: r.unit || "units",
+    requestedPrice: Number(r.unitFinalPrice || r.unitOriginalPrice || r.requestedPrice || 0),
+    totalAmount: Number(r.totalAmount || (r.quantity * (r.unitFinalPrice || r.unitOriginalPrice || 0))),
+    requestedDate: reqDateStr,
+    requestedTime: reqTimeStr,
+    status: normalizedStatus,
+    rawStatus: r.status,
+    priority: r.priority || (r.delivery === 'Express' ? 'High' : 'Normal'),
+    delivery: r.delivery || (r.distance && parseFloat(r.distance) > 15 ? 'Express' : 'Standard'),
+    distance: r.distance || `${((r.fromHospitalId ? parseInt(r.fromHospitalId.replace(/\D/g, '')) * 3.7 : 5) % 25 + 2).toFixed(1)} km`,
+    notes: r.notes || "Medicine requisition for patient care.",
+    batch: r.batchNo || r.batch || med.batchNo || "BATCH-2026",
+    expiry: r.expiryDate ? formatDate(r.expiryDate) : (med.expiryDate ? formatDate(med.expiryDate) : "15 Dec 2026"),
+    medicineId: r.medicineId,
+  };
+}
 
 const INITIAL_REQUESTS = [
   {
@@ -188,7 +244,42 @@ function PriorityBadge({ priority }) {
 }
 
 export default function IncomingRequests() {
-  const [requests, setRequests] = useState(INITIAL_REQUESTS);
+  const { user } = useSelector((state) => state.auth);
+  const currentHospitalId = user?.hospitalId || user?.id || 'hosp-1';
+
+  // Alert Deep-Link & Pulse Highlighting
+  const [searchParams, setSearchParams] = useSearchParams();
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  const loadRequests = () => {
+    try {
+      const storedReqs = getStoredItem(KEYS.REQUESTS, []);
+      if (Array.isArray(storedReqs) && storedReqs.length > 0) {
+        const hospitals = getStoredItem(KEYS.HOSPITALS, []);
+        const medicines = getStoredItem(KEYS.MEDICINES, []);
+        const hospMap = Object.fromEntries(hospitals.map((h) => [h.id, h]));
+        const medMap = Object.fromEntries(medicines.map((m) => [m.id, m]));
+
+        const targetId = searchParams.get('requestId') || searchParams.get('orderId') || searchParams.get('reqId') || searchParams.get('transactionId') || location.state?.alertTarget?.requestId || location.state?.alertTarget?.orderId;
+
+        const relevant = storedReqs.filter((r) => 
+          r.toHospitalId === currentHospitalId || 
+          (targetId && (r.id === targetId || r.transactionId === targetId || r.orderId === targetId)) ||
+          !r.toHospitalId
+        );
+
+        if (relevant.length > 0) {
+          return relevant.map((r) => normalizeIncomingRequest(r, hospMap, medMap));
+        }
+      }
+    } catch (e) {
+      console.warn("Failed loading stored requests", e);
+    }
+    return INITIAL_REQUESTS;
+  };
+
+  const [requests, setRequests] = useState(loadRequests);
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
@@ -200,10 +291,6 @@ export default function IncomingRequests() {
 
   const [actionLoading, setActionLoading] = useState(false);
 
-  // Alert Deep-Link & Pulse Highlighting
-  const [searchParams, setSearchParams] = useSearchParams();
-  const location = useLocation();
-  const navigate = useNavigate();
   const [highlightedId, setHighlightedId] = useState(null);
   const processedTargetRef = useRef(null);
 
@@ -237,7 +324,12 @@ export default function IncomingRequests() {
     };
 
     const matched = requests.find(
-      (r) => r.id === targetReqId || (r.id && r.id.toLowerCase() === targetReqId.toLowerCase())
+      (r) => 
+        r.id === targetReqId || 
+        r.orderId === targetReqId || 
+        r.transactionId === targetReqId || 
+        (r.id && r.id.toLowerCase() === targetReqId.toLowerCase()) ||
+        (r.transactionId && r.transactionId.toLowerCase() === targetReqId.toLowerCase())
     );
 
     if (matched) {
@@ -335,7 +427,7 @@ export default function IncomingRequests() {
     setActionType(null);
   }
 
-  function handleAction() {
+  async function handleAction() {
     if (!actionRequest || !actionType) return;
     if (actionLoading) return;
 
@@ -349,9 +441,17 @@ export default function IncomingRequests() {
 
     setActionLoading(true);
 
-    setTimeout(() => {
-      const newStatus =
-        actionType === "approve" ? "Accepted" : "Rejected";
+    try {
+      const newAction = actionType === "approve" ? "accept" : "reject";
+      
+      // Call hospitalService to sync storage, audit, and inventory deduction
+      try {
+        await hospitalService.handleRequest(actionRequest.id, newAction, '', currentHospitalId);
+      } catch (svcErr) {
+        console.warn("hospitalService.handleRequest fallback:", svcErr);
+      }
+
+      const newStatus = actionType === "approve" ? "Accepted" : "Rejected";
 
       // Log to audit trail
       auditService.logEvent({
@@ -359,7 +459,7 @@ export default function IncomingRequests() {
         entityType: "REQUEST",
         entityId: actionRequest.id,
         actorRole: "hospital",
-        hospitalName: "Authorized Provider Hospital",
+        hospitalName: user?.name || "Authorized Provider Hospital",
         partnerHospitalName: actionRequest.hospital,
         summary: `${actionType === "approve" ? "Approved" : "Declined"} requisition ${actionRequest.id} for ${actionRequest.quantity} units of ${actionRequest.medicine}.`,
         resultingStatus: newStatus,
@@ -391,10 +491,13 @@ export default function IncomingRequests() {
       }
 
       toast.success(`Request ${actionRequest.id} marked as ${newStatus}`);
+    } catch (err) {
+      toast.error(`Failed to update request: ${err.message}`);
+    } finally {
       setActionLoading(false);
       setActionRequest(null);
       setActionType(null);
-    }, 500);
+    }
   }
 
   function clearFilters() {

@@ -95,10 +95,6 @@ export const HospitalDashboard = () => {
     };
   }, [inventory]);
 
-  if (isLoading && !dashboardData && inventory.length === 0) {
-    return <LoadingSpinner text="Compiling Pharmacy Supply Chain Telemetry..." />;
-  }
-
   const stats = dashboardData?.stats || {
     totalMedicines: inventoryMetrics.totalUnits,
     activeSkus: inventoryMetrics.totalBatches,

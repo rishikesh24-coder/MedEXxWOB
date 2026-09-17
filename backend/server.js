@@ -8,6 +8,7 @@ const { createCorsOptions } = require('./config/cors');
 const { checkConnection } = require('./config/supabase');
 const abdmConfig = require('./config/abdm');
 const logger = require('./utils/logger');
+const { notFoundHandler, errorHandler } = require('./middleware/errorHandler');
 
 const app = express();
 
@@ -108,37 +109,10 @@ if (hasDist) {
 }
 
 // 4. 404 Not Found Handler (applies to unmatched /api routes or missing assets)
-app.use((req, res) => {
-  res.status(404).json({
-    success: false,
-    error: {
-      code: 'NOT_FOUND',
-      message: `Route not found: ${req.method} ${req.originalUrl}`,
-    },
-    timestamp: new Date().toISOString(),
-  });
-});
+app.use(notFoundHandler);
 
 // 5. Centralized Error Handler
-app.use((err, req, res, next) => {
-  logger.error(`Error on ${req.method} ${req.originalUrl}:`, err.message);
-
-  const statusCode = err.statusCode || (typeof err.status === 'number' ? err.status : 500);
-  const code = err.code || 'INTERNAL_SERVER_ERROR';
-  const message = err.message || 'An unexpected error occurred on the MedEx server.';
-
-  res.status(statusCode).json({
-    success: false,
-    error: {
-      code,
-      message,
-      ...(err.missingFields && { missingFields: err.missingFields }),
-      ...(err.hospital && { hospital: err.hospital }),
-      ...(err.rejectionReason && { rejectionReason: err.rejectionReason }),
-    },
-    timestamp: new Date().toISOString(),
-  });
-});
+app.use(errorHandler);
 
 // 6. Server Startup & Graceful Lifecycle
 let serverInstance = null;

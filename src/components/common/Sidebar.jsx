@@ -24,6 +24,7 @@ import {
   Settings
 } from 'lucide-react';
 import { alertService } from '../../services/alertService';
+import { getStoredItem, KEYS } from '../../services/storage';
 
 export const Sidebar = ({ role = 'hospital' }) => {
   const location = useLocation();
@@ -58,10 +59,18 @@ export const Sidebar = ({ role = 'hospital' }) => {
     };
   }, [role, user?.id, location.pathname]);
 
-  const pendingIncomingCount = incomingRequests?.filter((r) => r.status === 'pending').length || 0;
-  const pendingHospitalsCount = hospitals?.filter((h) => 
-    h.status === 'pending' || h.status === 'pending_approval' || h.status === 'documents_missing' || h.status === 'under_review'
-  ).length || 0;
+  const reqList = incomingRequests && incomingRequests.length > 0
+    ? incomingRequests
+    : (user?.id ? getStoredItem(KEYS.REQUESTS, []).filter(r => r.toHospitalId === user.id) : []);
+  const pendingIncomingCount = reqList.filter((r) => (r.status || '').toLowerCase() === 'pending').length;
+
+  const hospList = hospitals && hospitals.length > 0
+    ? hospitals
+    : getStoredItem(KEYS.HOSPITALS, []);
+  const pendingHospitalsCount = hospList.filter((h) => {
+    const s = (h.status || '').toLowerCase();
+    return s === 'pending' || s === 'pending_approval' || s === 'documents_missing' || s === 'under_review';
+  }).length;
 
   // Grouped Navigation Sections for Hospital Portal
   const hospitalNavSections = [

@@ -19,6 +19,7 @@ const errorHandler = (err, req, res, next) => {
   
   // Custom properties for domain-specific status gates
   const details = {};
+  if (err.missingFields) details.missingFields = err.missingFields;
   if (err.hospital) details.hospital = err.hospital;
   if (err.rejectionReason) details.rejectionReason = err.rejectionReason;
   if (err.missingDocuments) details.missingDocuments = err.missingDocuments;

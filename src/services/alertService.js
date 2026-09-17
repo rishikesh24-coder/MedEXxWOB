@@ -1,5 +1,5 @@
-import { getStoredItem, setStoredItem, KEYS } from './storage';
-import { calculateMedicineExpiry } from '../utils/expiryUtils';
+import { getStoredItem, setStoredItem, KEYS } from './storage.js';
+import { calculateMedicineExpiry } from '../utils/expiryUtils.js';
 
 import { API_BASE_URL } from '../config/api.js';
 

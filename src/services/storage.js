@@ -12,7 +12,7 @@ import {
   ADMIN_ANALYTICS
 } from './mockData.js';
 
-const KEYS = {
+export const KEYS = {
   HOSPITALS: 'sms_hospitals',
   MASTER_MEDICINES: 'sms_master_medicines',
   MEDICINES: 'sms_medicines',
@@ -30,8 +30,8 @@ const KEYS = {
 
 // Initialize localStorage with mock data if not present, and seamlessly merge new mock data
 export const initializeStorage = () => {
-  // 1. Hospitals: initialize or migrate with comprehensive 20-hospital dataset & future-ready document models
-  const HOSPITALS_DATASET_VERSION = 'medex_v2_comprehensive_hospitals';
+  // 1. Hospitals: initialize or migrate with comprehensive 24-hospital dataset & future-ready document models
+  const HOSPITALS_DATASET_VERSION = 'medex_v3_cdsco_expansion';
   const storedVersion = localStorage.getItem('sms_hospital_dataset_version');
   const storedHospitals = localStorage.getItem(KEYS.HOSPITALS);
 
@@ -119,7 +119,7 @@ export const initializeStorage = () => {
   }
 
   // 1b. Master Medicines Catalogue: initialize or migrate with INITIAL_MASTER_MEDICINES
-  const MASTER_DATASET_VERSION = 'medex_v2_master_catalogue';
+  const MASTER_DATASET_VERSION = 'medex_v3_cdsco_expansion';
   const storedMasterVersion = localStorage.getItem('sms_master_medicines_version');
   const storedMasterMeds = localStorage.getItem(KEYS.MASTER_MEDICINES);
 
@@ -139,9 +139,23 @@ export const initializeStorage = () => {
   }
 
   // 2. Medicines: initialize or merge missing & ensure complete medical inventory fields
+  const MEDICINES_DATASET_VERSION = 'medex_v3_cdsco_expansion';
+  const storedMedVersion = localStorage.getItem('sms_medicines_dataset_version');
   const storedMedicines = localStorage.getItem(KEYS.MEDICINES);
-  if (!storedMedicines) {
-    localStorage.setItem(KEYS.MEDICINES, JSON.stringify(INITIAL_MEDICINES));
+
+  if (!storedMedicines || storedMedVersion !== MEDICINES_DATASET_VERSION) {
+    let userCreatedLots = [];
+    if (storedMedicines) {
+      try {
+        const parsed = JSON.parse(storedMedicines);
+        const seedIds = new Set(INITIAL_MEDICINES.map((m) => m.id));
+        userCreatedLots = parsed.filter((m) => !seedIds.has(m.id));
+      } catch (e) {
+        userCreatedLots = [];
+      }
+    }
+    localStorage.setItem(KEYS.MEDICINES, JSON.stringify([...INITIAL_MEDICINES, ...userCreatedLots]));
+    localStorage.setItem('sms_medicines_dataset_version', MEDICINES_DATASET_VERSION);
   } else {
     try {
       let parsed = JSON.parse(storedMedicines);
@@ -297,9 +311,23 @@ export const initializeStorage = () => {
   }
 
   // 3. Requests: initialize or merge missing & ensure expiryDate/requirementGroupId
+  const REQUESTS_DATASET_VERSION = 'medex_v3_cdsco_expansion';
+  const storedReqVersion = localStorage.getItem('sms_requests_dataset_version');
   const storedRequests = localStorage.getItem(KEYS.REQUESTS);
-  if (!storedRequests) {
-    localStorage.setItem(KEYS.REQUESTS, JSON.stringify(INITIAL_REQUESTS));
+
+  if (!storedRequests || storedReqVersion !== REQUESTS_DATASET_VERSION) {
+    let userCreatedReqs = [];
+    if (storedRequests) {
+      try {
+        const parsed = JSON.parse(storedRequests);
+        const seedIds = new Set(INITIAL_REQUESTS.map((r) => r.id));
+        userCreatedReqs = parsed.filter((r) => !seedIds.has(r.id));
+      } catch (e) {
+        userCreatedReqs = [];
+      }
+    }
+    localStorage.setItem(KEYS.REQUESTS, JSON.stringify([...INITIAL_REQUESTS, ...userCreatedReqs]));
+    localStorage.setItem('sms_requests_dataset_version', REQUESTS_DATASET_VERSION);
   } else {
     try {
       let parsedReqs = JSON.parse(storedRequests);
@@ -898,6 +926,4 @@ export const getHospitalDocumentChecklist = (hospitalDocuments = []) => {
     totalRequired: MANDATORY_DOCUMENTS.length,
   };
 };
-
-export { KEYS };
 

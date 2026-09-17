@@ -426,7 +426,7 @@ export const TrackPage = () => {
                 TRACKING ID
               </span>
               <div className="text-sm font-black font-mono text-primary-700 truncate">
-                {tracking.trackingNumber || `MS-TRK-${tracking.transactionId}`}
+                {tracking.trackingNumber || `MDX-TRK-${tracking.transactionId}`}
               </div>
               <p className="text-[11px] text-slate-400 font-mono">Txn: {tracking.transactionId}</p>
             </div>
@@ -540,7 +540,7 @@ export const TrackPage = () => {
                 )}
               </span>
               <span className="text-[11px] font-mono text-slate-400">
-                {tracking.trackingNumber || 'MS-TRK-20481'}
+                {tracking.trackingNumber || 'MDX-TRK-20481'}
               </span>
             </div>
 
@@ -676,7 +676,7 @@ export const TrackPage = () => {
                   type="button"
                   onClick={() => handleSelectShipment(s.txnId)}
                   className={`w-full text-left p-3 rounded-2xl border transition-all text-xs flex items-center justify-between ${
-                    selectedTxn === s.txnId
+                    selectedTxn?.toLowerCase() === s.txnId?.toLowerCase()
                       ? 'border-primary-600 bg-primary-50/50 shadow-sm ring-1 ring-primary-600/30'
                       : 'border-slate-200 hover:bg-slate-50'
                   }`}

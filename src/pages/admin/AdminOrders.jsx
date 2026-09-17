@@ -105,21 +105,51 @@ export const AdminOrders = () => {
     fetchOrders();
   }, []);
 
+  const [highlightedOrderId, setHighlightedOrderId] = useState(null);
+
   // Deep-link to target order from alert Inspect
   useEffect(() => {
-    const targetOrderId = searchParams.get('orderId') || location.state?.alertTarget?.orderId;
+    const targetOrderId = searchParams.get('orderId') || searchParams.get('requestId') || searchParams.get('transactionId') || location.state?.alertTarget?.orderId || location.state?.alertTarget?.sourceId || location.state?.alertTarget?.requestId;
     if (!targetOrderId || orders.length === 0 || processedOrderRef.current) return;
 
-    const found = orders.find((o) => o.id === targetOrderId || o.orderNumber === targetOrderId);
+    const found = orders.find((o) =>
+      o.id === targetOrderId ||
+      o.orderId === targetOrderId ||
+      o.orderNumber === targetOrderId ||
+      o.transactionId === targetOrderId ||
+      (o.id && o.id.toLowerCase() === targetOrderId.toLowerCase()) ||
+      (o.orderId && o.orderId.toLowerCase() === targetOrderId.toLowerCase()) ||
+      (o.transactionId && o.transactionId.toLowerCase() === targetOrderId.toLowerCase())
+    );
+
     if (found) {
       processedOrderRef.current = true;
       setActiveFilterTab('all');
       setSelectedOrder(found);
-      toast.success(`Focused on Order #${found.orderNumber || found.id}`, { icon: '📦' });
+      setHighlightedOrderId(found.id);
+      toast.success(`Focused on Order #${found.orderId || found.orderNumber || found.id}`, { icon: '📦' });
+
+      let attempts = 0;
+      const scrollTimer = setInterval(() => {
+        attempts++;
+        const targetEl = document.getElementById(`admin-order-row-${found.id}`);
+        if (targetEl) {
+          clearInterval(scrollTimer);
+          targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        } else if (attempts > 20) {
+          clearInterval(scrollTimer);
+        }
+      }, 75);
+
+      setTimeout(() => {
+        setHighlightedOrderId(null);
+      }, 4200);
 
       try {
         const next = new URLSearchParams(searchParams);
         next.delete('orderId');
+        next.delete('requestId');
+        next.delete('transactionId');
         setSearchParams(next, { replace: true });
       } catch (e) {
         console.warn(e);
@@ -662,8 +692,13 @@ export const AdminOrders = () => {
                   return (
                     <tr
                       key={order.id}
+                      id={`admin-order-row-${order.id}`}
                       onClick={() => setSelectedOrder(order)}
-                      className="hover:bg-teal-50/30 transition-colors cursor-pointer group"
+                      className={`transition-colors cursor-pointer group ${
+                        highlightedOrderId === order.id
+                          ? 'alert-target-highlight alert-pulse-target bg-teal-50/60'
+                          : 'hover:bg-teal-50/30'
+                      }`}
                     >
                       {/* Order / TXN ID */}
                       <td className="py-3.5 px-4 font-mono font-bold text-slate-900 group-hover:text-teal-900">

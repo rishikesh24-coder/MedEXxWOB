@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
 import { 
@@ -21,18 +21,27 @@ import {
   XCircle
 } from 'lucide-react';
 import { loginUser, clearAuthError } from '../../store/slices/authSlice';
+import CaptchaBox from '../../components/common/CaptchaBox';
 import toast from 'react-hot-toast';
 
 export const LoginPage = () => {
   const [searchParams] = useSearchParams();
   const isUnverifiedParam = searchParams.get('unverified') === 'true';
+  const roleParam = searchParams.get('role');
+  const initialRole = roleParam === 'admin' ? 'admin' : 'hospital';
 
-  const [activeTab, setActiveTab] = useState('hospital'); // 'hospital' | 'admin'
-  const [email, setEmail] = useState('apollo.mumbai@medex.org');
-  const [password, setPassword] = useState('Hospital@123');
+  const [activeTab, setActiveTab] = useState(initialRole);
+  const [email, setEmail] = useState(initialRole === 'admin' ? 'admin@medex.org' : 'apollo.mumbai@medex.org');
+  const [password, setPassword] = useState(initialRole === 'admin' ? 'Admin@123' : 'Hospital@123');
   const [rememberMe, setRememberMe] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
   const [showUnverifiedBanner, setShowUnverifiedBanner] = useState(isUnverifiedParam);
+
+  // Security CAPTCHA verification state
+  const [captchaInput, setCaptchaInput] = useState('');
+  const [isCaptchaVerified, setIsCaptchaVerified] = useState(false);
+  const [captchaError, setCaptchaError] = useState('');
+  const captchaRef = useRef(null);
 
   const [pendingApprovalHospital, setPendingApprovalHospital] = useState(null);
   const [rejectedHospital, setRejectedHospital] = useState(null);
@@ -50,6 +59,11 @@ export const LoginPage = () => {
     dispatch(clearAuthError());
     setPendingApprovalHospital(null);
     setRejectedHospital(null);
+    setCaptchaInput('');
+    setIsCaptchaVerified(false);
+    setCaptchaError('');
+    captchaRef.current?.regenerate();
+
     if (tab === 'admin') {
       setEmail('admin@medex.org');
       setPassword('Admin@123');
@@ -62,6 +76,11 @@ export const LoginPage = () => {
   const handleQuickDemoFill = (roleType) => {
     setPendingApprovalHospital(null);
     setRejectedHospital(null);
+    setCaptchaInput('');
+    setIsCaptchaVerified(false);
+    setCaptchaError('');
+    captchaRef.current?.regenerate();
+
     if (roleType === 'admin') {
       setActiveTab('admin');
       setEmail('admin@medex.org');
@@ -75,13 +94,31 @@ export const LoginPage = () => {
       setEmail('fortis.gurgaon@medex.org');
       setPassword('Hospital@123');
     }
-    toast.success(`Loaded demo credentials for ${roleType.toUpperCase()}`);
+    toast.success(`Loaded credentials for ${roleType.toUpperCase()}. Please complete security verification.`);
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setCaptchaError('');
+
     if (!email || !password) {
       toast.error('Please provide email and password');
+      return;
+    }
+
+    if (!captchaInput.trim()) {
+      setCaptchaError('Security code is required');
+      toast.error('Please enter the CAPTCHA verification code');
+      return;
+    }
+
+    const isValid = captchaRef.current?.validate(captchaInput);
+    if (!isValid) {
+      setCaptchaError('Incorrect verification code. Please enter the new challenge.');
+      setCaptchaInput('');
+      setIsCaptchaVerified(false);
+      captchaRef.current?.regenerate();
+      toast.error('Invalid CAPTCHA code. Verification challenge refreshed.');
       return;
     }
 
@@ -92,6 +129,11 @@ export const LoginPage = () => {
         const redirectPath = activeTab === 'admin' ? '/admin/dashboard' : '/hospital/dashboard';
         navigate(redirectPath, { replace: true });
       } else {
+        // Failed login attempt: regenerate CAPTCHA and clear input
+        setCaptchaInput('');
+        setIsCaptchaVerified(false);
+        captchaRef.current?.regenerate();
+
         const payload = resultAction.payload;
         if (payload?.code === 'PENDING_ADMIN_APPROVAL') {
           setPendingApprovalHospital(payload.hospital || { email });
@@ -107,6 +149,9 @@ export const LoginPage = () => {
         toast.error(errorMsg);
       }
     } catch (err) {
+      setCaptchaInput('');
+      setIsCaptchaVerified(false);
+      captchaRef.current?.regenerate();
       toast.error(err.message || 'Unexpected login error');
     }
   };
@@ -429,11 +474,34 @@ export const LoginPage = () => {
               </div>
             </div>
 
+            {/* Security CAPTCHA Verification Gate */}
+            <div className="pt-2 pb-1 border-t border-slate-100">
+              <CaptchaBox
+                ref={captchaRef}
+                value={captchaInput}
+                onChange={(val) => {
+                  setCaptchaInput(val);
+                  if (captchaError) setCaptchaError('');
+                }}
+                onVerifyChange={(isMatch) => {
+                  setIsCaptchaVerified(isMatch);
+                  if (isMatch) setCaptchaError('');
+                }}
+                errorMessage={captchaError}
+              />
+            </div>
+
             {/* Submit Button */}
             <button
               type="submit"
-              disabled={isLoading}
-              className="w-full py-3 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold shadow-lg shadow-teal-600/20 transition-all flex items-center justify-center gap-2 disabled:opacity-75"
+              disabled={isLoading || !isCaptchaVerified}
+              className={`w-full py-3 rounded-xl text-white text-xs font-bold shadow-lg transition-all flex items-center justify-center gap-2 ${
+                !isCaptchaVerified || isLoading
+                  ? 'bg-slate-400 cursor-not-allowed opacity-75 shadow-none'
+                  : activeTab === 'admin'
+                    ? 'bg-ocean-900 hover:bg-ocean-950 shadow-ocean-900/20'
+                    : 'bg-teal-600 hover:bg-teal-700 shadow-teal-600/20'
+              }`}
             >
               {isLoading ? (
                 <>
@@ -442,7 +510,11 @@ export const LoginPage = () => {
                 </>
               ) : (
                 <>
-                  <span>Sign In as {activeTab === 'hospital' ? 'Hospital' : 'Administrator'}</span>
+                  <span>
+                    {!isCaptchaVerified
+                      ? 'Verify CAPTCHA to Sign In'
+                      : `Sign In as ${activeTab === 'hospital' ? 'Hospital' : 'Administrator'}`}
+                  </span>
                   <ArrowRight className="w-4 h-4" />
                 </>
               )}
