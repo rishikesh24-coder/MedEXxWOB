@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300" width="100%" height="100%">
+  <defs>
+    <linearGradient id="calpolFoil" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fffbeb"/>
+      <stop offset="50%" stop-color="#fef3c7"/>
+      <stop offset="100%" stop-color="#fde68a"/>
+    </linearGradient>
+    <linearGradient id="calpolHeader" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#e11d48"/>
+      <stop offset="100%" stop-color="#be123c"/>
+    </linearGradient>
+    <filter id="cShadow" x="-5%" y="-5%" width="110%" height="110%">
+      <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#0f172a" flood-opacity="0.12"/>
+    </filter>
+  </defs>
+
+  <rect width="400" height="300" fill="#f8fafc"/>
+
+  <!-- Blister Strip Card -->
+  <g filter="url(#cShadow)">
+    <rect x="40" y="35" width="320" height="230" rx="16" fill="url(#calpolFoil)" stroke="#f59e0b" stroke-width="1.5"/>
+  </g>
+
+  <!-- Red Header Strip -->
+  <rect x="40" y="35" width="320" height="42" rx="16" fill="url(#calpolHeader)"/>
+  <rect x="40" y="60" width="320" height="17" fill="url(#calpolHeader)"/>
+  
+  <text x="55" y="58" font-family="system-ui, sans-serif" font-size="16" font-weight="900" fill="#ffffff" letter-spacing="0.5">CALPOL 500</text>
+  <text x="165" y="56" font-family="system-ui, sans-serif" font-size="10" font-weight="600" fill="#ffe4e6">Paracetamol Tablets IP 500 mg</text>
+  <text x="345" y="57" font-family="system-ui, sans-serif" font-size="9" font-weight="800" fill="#ffffff" text-anchor="end">GSK</text>
+
+  <!-- Tablets Grid (3 rows of 5 round tablets) -->
+  <g fill="#ffffff" stroke="#e2e8f0" stroke-width="1.2">
+    <!-- Row 1 -->
+    <circle cx="84" cy="107" r="17" filter="url(#cShadow)"/>
+    <circle cx="142" cy="107" r="17" filter="url(#cShadow)"/>
+    <circle cx="200" cy="107" r="17" filter="url(#cShadow)"/>
+    <circle cx="258" cy="107" r="17" filter="url(#cShadow)"/>
+    <circle cx="316" cy="107" r="17" filter="url(#cShadow)"/>
+
+    <!-- Row 2 -->
+    <circle cx="84" cy="153" r="17" filter="url(#cShadow)"/>
+    <circle cx="142" cy="153" r="17" filter="url(#cShadow)"/>
+    <circle cx="200" cy="153" r="17" filter="url(#cShadow)"/>
+    <circle cx="258" cy="153" r="17" filter="url(#cShadow)"/>
+    <circle cx="316" cy="153" r="17" filter="url(#cShadow)"/>
+
+    <!-- Row 3 -->
+    <circle cx="84" cy="199" r="17" filter="url(#cShadow)"/>
+    <circle cx="142" cy="199" r="17" filter="url(#cShadow)"/>
+    <circle cx="200" cy="199" r="17" filter="url(#cShadow)"/>
+    <circle cx="258" cy="199" r="17" filter="url(#cShadow)"/>
+    <circle cx="316" cy="199" r="17" filter="url(#cShadow)"/>
+  </g>
+
+  <!-- Embossed tablet center lines -->
+  <g stroke="#cbd5e1" stroke-width="1.5">
+    <line x1="84" y1="96" x2="84" y2="118"/>
+    <line x1="142" y1="96" x2="142" y2="118"/>
+    <line x1="200" y1="96" x2="200" y2="118"/>
+    <line x1="258" y1="96" x2="258" y2="118"/>
+    <line x1="316" y1="96" x2="316" y2="118"/>
+
+    <line x1="84" y1="142" x2="84" y2="164"/>
+    <line x1="142" y1="142" x2="142" y2="164"/>
+    <line x1="200" y1="142" x2="200" y2="164"/>
+    <line x1="258" y1="142" x2="258" y2="164"/>
+    <line x1="316" y1="142" x2="316" y2="164"/>
+
+    <line x1="84" y1="188" x2="84" y2="210"/>
+    <line x1="142" y1="188" x2="142" y2="210"/>
+    <line x1="200" y1="188" x2="200" y2="210"/>
+    <line x1="258" y1="188" x2="258" y2="210"/>
+    <line x1="316" y1="188" x2="316" y2="210"/>
+  </g>
+
+  <!-- Footer -->
+  <rect x="40" y="235" width="320" height="30" rx="4" fill="#0f172a" opacity="0.04"/>
+  <text x="55" y="250" font-family="system-ui, sans-serif" font-size="9" font-weight="700" fill="#475569">GLAXOSMITHKLINE PHARMA</text>
+  <text x="345" y="250" font-family="monospace" font-size="8" font-weight="600" fill="#64748b" text-anchor="end">BATCH: CLP5-901 • EXP: 12/2026</text>
+</svg>

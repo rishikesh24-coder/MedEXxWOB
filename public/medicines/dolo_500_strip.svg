@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300" width="100%" height="100%">
+  <defs>
+    <linearGradient id="stripBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f8fafc"/>
+      <stop offset="100%" stop-color="#e2e8f0"/>
+    </linearGradient>
+    <filter id="medShadow" x="-5%" y="-5%" width="110%" height="110%">
+      <feDropShadow dx="0" dy="6" stdDeviation="8" flood-color="#0f172a" flood-opacity="0.14"/>
+    </filter>
+  </defs>
+
+  <rect width="400" height="300" fill="#f8fafc"/>
+
+  <!-- Multiple Blister Strips Stacked -->
+  <!-- Strip 1 in background -->
+  <rect x="70" y="30" width="280" height="180" rx="14" fill="#cbd5e1" opacity="0.6" transform="rotate(-3 210 120)"/>
+  
+  <!-- Strip 2 main in foreground -->
+  <g filter="url(#medShadow)">
+    <rect x="50" y="55" width="300" height="200" rx="14" fill="url(#stripBg)" stroke="#94a3b8" stroke-width="1.2"/>
+  </g>
+
+  <!-- Blue Header Brand Band -->
+  <rect x="50" y="55" width="300" height="36" rx="14" fill="#0284c7"/>
+  <rect x="50" y="75" width="300" height="16" fill="#0284c7"/>
+  <text x="68" y="78" font-family="system-ui, sans-serif" font-size="15" font-weight="900" fill="#ffffff">DOLO 500</text>
+  <text x="160" y="77" font-family="system-ui, sans-serif" font-size="10" font-weight="600" fill="#e0f2fe">Paracetamol Tablets IP 500 mg</text>
+  <text x="335" y="78" font-family="monospace" font-size="9" font-weight="800" fill="#ffffff" text-anchor="end">15 TABS</text>
+
+  <!-- Blister bubbles (2 rows of 5 large tablets) -->
+  <g fill="#ffffff" stroke="#cbd5e1" stroke-width="1.2">
+    <ellipse cx="85" cy="120" rx="20" ry="15" fill="#ffffff" filter="url(#medShadow)"/>
+    <ellipse cx="140" cy="120" rx="20" ry="15" fill="#ffffff" filter="url(#medShadow)"/>
+    <ellipse cx="195" cy="120" rx="20" ry="15" fill="#ffffff" filter="url(#medShadow)"/>
+    <ellipse cx="250" cy="120" rx="20" ry="15" fill="#ffffff" filter="url(#medShadow)"/>
+    <ellipse cx="305" cy="120" rx="20" ry="15" fill="#ffffff" filter="url(#medShadow)"/>
+
+    <ellipse cx="85" cy="170" rx="20" ry="15" fill="#ffffff" filter="url(#medShadow)"/>
+    <ellipse cx="140" cy="170" rx="20" ry="15" fill="#ffffff" filter="url(#medShadow)"/>
+    <ellipse cx="195" cy="170" rx="20" ry="15" fill="#ffffff" filter="url(#medShadow)"/>
+    <ellipse cx="250" cy="170" rx="20" ry="15" fill="#ffffff" filter="url(#medShadow)"/>
+    <ellipse cx="305" cy="170" rx="20" ry="15" fill="#ffffff" filter="url(#medShadow)"/>
+
+    <ellipse cx="85" cy="220" rx="20" ry="15" fill="#ffffff" filter="url(#medShadow)"/>
+    <ellipse cx="140" cy="220" rx="20" ry="15" fill="#ffffff" filter="url(#medShadow)"/>
+    <ellipse cx="195" cy="220" rx="20" ry="15" fill="#ffffff" filter="url(#medShadow)"/>
+    <ellipse cx="250" cy="220" rx="20" ry="15" fill="#ffffff" filter="url(#medShadow)"/>
+    <ellipse cx="305" cy="220" rx="20" ry="15" fill="#ffffff" filter="url(#medShadow)"/>
+  </g>
+
+  <!-- Score lines in pills -->
+  <g stroke="#94a3b8" stroke-width="1.2">
+    <line x1="85" y1="110" x2="85" y2="130"/>
+    <line x1="140" y1="110" x2="140" y2="130"/>
+    <line x1="195" y1="110" x2="195" y2="130"/>
+    <line x1="250" y1="110" x2="250" y2="130"/>
+    <line x1="305" y1="110" x2="305" y2="130"/>
+
+    <line x1="85" y1="160" x2="85" y2="180"/>
+    <line x1="140" y1="160" x2="140" y2="180"/>
+    <line x1="195" y1="160" x2="195" y2="180"/>
+    <line x1="250" y1="160" x2="250" y2="180"/>
+    <line x1="305" y1="160" x2="305" y2="180"/>
+
+    <line x1="85" y1="210" x2="85" y2="230"/>
+    <line x1="140" y1="210" x2="140" y2="230"/>
+    <line x1="195" y1="210" x2="195" y2="230"/>
+    <line x1="250" y1="210" x2="250" y2="230"/>
+    <line x1="305" y1="210" x2="305" y2="230"/>
+  </g>
+</svg>

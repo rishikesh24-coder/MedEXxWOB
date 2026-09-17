@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300" width="100%" height="100%">
+  <defs>
+    <linearGradient id="boxGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="60%" stop-color="#f8fafc"/>
+      <stop offset="100%" stop-color="#e2e8f0"/>
+    </linearGradient>
+    <linearGradient id="doloBlue" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#0284c7"/>
+      <stop offset="100%" stop-color="#0369a1"/>
+    </linearGradient>
+    <linearGradient id="accentOrange" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#f97316"/>
+      <stop offset="100%" stop-color="#ea580c"/>
+    </linearGradient>
+    <filter id="boxShadow" x="-10%" y="-10%" width="120%" height="125%">
+      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#0f172a" flood-opacity="0.16"/>
+    </filter>
+  </defs>
+
+  <rect width="400" height="300" fill="#f8fafc"/>
+
+  <!-- 3D Packaging Carton Box -->
+  <g filter="url(#boxShadow)">
+    <!-- Box Front Face -->
+    <rect x="70" y="45" width="260" height="210" rx="8" fill="url(#boxGrad)" stroke="#cbd5e1" stroke-width="1.5"/>
+
+    <!-- Top Blue Band -->
+    <path d="M 70,53 Q 70,45 78,45 L 322,45 Q 330,45 330,53 L 330,95 L 70,95 Z" fill="url(#doloBlue)"/>
+
+    <!-- Orange Accent Stripe -->
+    <rect x="70" y="95" width="260" height="6" fill="url(#accentOrange)"/>
+  </g>
+
+  <!-- Box Branding and Typography -->
+  <text x="88" y="78" font-family="system-ui, -apple-system, sans-serif" font-size="24" font-weight="900" fill="#ffffff" letter-spacing="1">DOLO-500</text>
+  <text x="312" y="78" font-family="system-ui, -apple-system, sans-serif" font-size="11" font-weight="800" fill="#bae6fd" text-anchor="end">TABLETS</text>
+
+  <!-- Formula Details -->
+  <text x="88" y="125" font-family="system-ui, -apple-system, sans-serif" font-size="13" font-weight="800" fill="#0f172a">Paracetamol Tablets IP 500 mg</text>
+  <text x="88" y="142" font-family="system-ui, -apple-system, sans-serif" font-size="10" font-weight="600" fill="#475569">Each uncoated tablet contains: Paracetamol IP 500 mg</text>
+
+  <!-- Dosage Form and Specs Box -->
+  <rect x="88" y="155" width="224" height="42" rx="6" fill="#f1f5f9" stroke="#e2e8f0"/>
+  <text x="100" y="172" font-family="system-ui, -apple-system, sans-serif" font-size="9" font-weight="700" fill="#0369a1">ANTIPYRETIC &amp; ANALGESIC</text>
+  <text x="100" y="187" font-family="system-ui, -apple-system, sans-serif" font-size="8.5" font-weight="600" fill="#64748b">Relief from fever &amp; mild to moderate pain</text>
+  <text x="300" y="178" font-family="system-ui, -apple-system, sans-serif" font-size="11" font-weight="800" fill="#0284c7" text-anchor="end">10 × 15</text>
+  <text x="300" y="188" font-family="system-ui, -apple-system, sans-serif" font-size="7.5" font-weight="600" fill="#64748b" text-anchor="end">Tablets</text>
+
+  <!-- Security Hologram Seal -->
+  <rect x="88" y="210" width="34" height="26" rx="4" fill="#e0f2fe" stroke="#38bdf8" stroke-width="1.2"/>
+  <circle cx="105" cy="223" r="7" fill="none" stroke="#0284c7" stroke-dasharray="2 2" stroke-width="1"/>
+  <text x="105" y="226" font-family="system-ui, -apple-system, sans-serif" font-size="6" font-weight="900" fill="#0369a1" text-anchor="middle">CDSCO</text>
+
+  <!-- Manufacturer & Batch on Carton -->
+  <text x="132" y="222" font-family="system-ui, -apple-system, sans-serif" font-size="9" font-weight="800" fill="#1e293b">MICRO LABS LIMITED</text>
+  <text x="132" y="234" font-family="monospace" font-size="8" font-weight="600" fill="#64748b">Batch: PCM2401 • Exp: 04/2027</text>
+</svg>

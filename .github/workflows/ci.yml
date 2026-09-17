@@ -1,0 +1,119 @@
+name: MedEx Production CI
+
+on:
+  push:
+    branches: [main, master, develop]
+  pull_request:
+    branches: [main, master]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ----------------------------------------------------------------------------
+  # Job 1: Frontend Production Build & Bundle Verification
+  # ----------------------------------------------------------------------------
+  frontend-build:
+    name: Frontend Build & Verification
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      - name: Install Frontend Dependencies (Deterministic)
+        run: npm ci
+
+      - name: Build Production Frontend Bundle
+        run: npm run build
+        env:
+          NODE_ENV: production
+          VITE_API_BASE_URL: /api
+
+  # ----------------------------------------------------------------------------
+  # Job 2: Backend Security & Regression Test Suites
+  # ----------------------------------------------------------------------------
+  backend-test:
+    name: Backend Security & Regression Tests
+    runs-on: ubuntu-latest
+    env:
+      NODE_ENV: test
+      PORT: 5000
+      PAYMENT_PROVIDER: mock
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: |
+            package-lock.json
+            backend/package-lock.json
+
+      - name: Install Root Dependencies
+        run: npm ci
+
+      - name: Install Backend Dependencies
+        working-directory: backend
+        run: npm ci
+
+      - name: Run Schema Integrity Tests (17 Core Tables, RLS, Compliance)
+        run: node backend/scripts/test-schema-integrity.js
+
+      - name: Run CORS Hardening Tests (Preflight, Allowlist, Fail-Safe)
+        run: node backend/scripts/test-phase11-cors.js
+
+      - name: Run Security Gating & Rate Limiting Tests (Auth, RBAC, HMAC)
+        run: node backend/scripts/test-phase11-security-ratelimit.js
+
+      - name: Run Document Upload Security Tests (MIME, Magic Bytes, Limits)
+        run: node backend/scripts/test-document-security.js
+
+      - name: Run Cancellation & Refund Tests (4-Tier Policy, Restorations)
+        run: node backend/scripts/test-phase6-cancellation-refund.js
+
+      - name: Run Payment & Webhook Tests (HMAC, Escrow, Idempotency)
+        run: node backend/scripts/test-phase7-payments.js
+
+      - name: Run Trading & Report Analytics Tests (Transactions, Envelopes)
+        run: node backend/scripts/test-phase10-trading-reports.js
+
+      - name: Run Horizontal Scaling & Concurrency Tests (Row Locking, CAS)
+        run: node backend/scripts/test-phase11-concurrency.js
+
+      - name: Run Logistics Telemetry & Institutional Feedback Tests (Transfers, Cold-Chain, ABDM)
+        run: node backend/scripts/test-phase12-logistics-feedback.js
+
+  # ----------------------------------------------------------------------------
+  # Job 3: Dockerfile Lint & Multi-Stage Validation
+  # ----------------------------------------------------------------------------
+  docker-validate:
+    name: Dockerfile Syntax & Multi-Stage Validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Validate Dockerfile Syntax & Multi-Stage Build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: false
+          tags: medex:ci-check
+          outputs: type=tar,dest=/dev/null

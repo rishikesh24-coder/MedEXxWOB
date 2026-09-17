@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300" width="100%" height="100%">
+  <defs>
+    <linearGradient id="paraFoil" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fdf4ff"/>
+      <stop offset="50%" stop-color="#fae8ff"/>
+      <stop offset="100%" stop-color="#f5d0fe"/>
+    </linearGradient>
+    <linearGradient id="paraHeader" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#9333ea"/>
+      <stop offset="100%" stop-color="#7e22ce"/>
+    </linearGradient>
+    <filter id="paraShadow" x="-5%" y="-5%" width="110%" height="110%">
+      <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#0f172a" flood-opacity="0.12"/>
+    </filter>
+  </defs>
+
+  <rect width="400" height="300" fill="#f8fafc"/>
+
+  <!-- Blister Strip Card -->
+  <g filter="url(#paraShadow)">
+    <rect x="50" y="40" width="300" height="220" rx="14" fill="url(#paraFoil)" stroke="#c084fc" stroke-width="1.5"/>
+  </g>
+
+  <!-- Purple Header Strip -->
+  <rect x="50" y="40" width="300" height="40" rx="14" fill="url(#paraHeader)"/>
+  <rect x="50" y="65" width="300" height="15" fill="url(#paraHeader)"/>
+  
+  <text x="65" y="62" font-family="system-ui, sans-serif" font-size="16" font-weight="900" fill="#ffffff">PARACARE 500</text>
+  <text x="195" y="60" font-family="system-ui, sans-serif" font-size="9.5" font-weight="600" fill="#f3e8ff">Paracetamol Tablets IP</text>
+  <text x="335" y="62" font-family="system-ui, sans-serif" font-size="9" font-weight="800" fill="#ffffff" text-anchor="end">10 TABS</text>
+
+  <!-- 2 rows of 5 round pills -->
+  <g fill="#ffffff" stroke="#e9d5ff" stroke-width="1.2">
+    <!-- Row 1 -->
+    <circle cx="85" cy="115" r="18" filter="url(#paraShadow)"/>
+    <circle cx="142" cy="115" r="18" filter="url(#paraShadow)"/>
+    <circle cx="200" cy="115" r="18" filter="url(#paraShadow)"/>
+    <circle cx="258" cy="115" r="18" filter="url(#paraShadow)"/>
+    <circle cx="315" cy="115" r="18" filter="url(#paraShadow)"/>
+
+    <!-- Row 2 -->
+    <circle cx="85" cy="175" r="18" filter="url(#paraShadow)"/>
+    <circle cx="142" cy="175" r="18" filter="url(#paraShadow)"/>
+    <circle cx="200" cy="175" r="18" filter="url(#paraShadow)"/>
+    <circle cx="258" cy="175" r="18" filter="url(#paraShadow)"/>
+    <circle cx="315" cy="175" r="18" filter="url(#paraShadow)"/>
+  </g>
+
+  <!-- Pill bisecting line -->
+  <g stroke="#d8b4fe" stroke-width="1.5">
+    <line x1="85" y1="102" x2="85" y2="128"/>
+    <line x1="142" y1="102" x2="142" y2="128"/>
+    <line x1="200" y1="102" x2="200" y2="128"/>
+    <line x1="258" y1="102" x2="258" y2="128"/>
+    <line x1="315" y1="102" x2="315" y2="128"/>
+
+    <line x1="85" y1="162" x2="85" y2="188"/>
+    <line x1="142" y1="162" x2="142" y2="188"/>
+    <line x1="200" y1="162" x2="200" y2="188"/>
+    <line x1="258" y1="162" x2="258" y2="188"/>
+    <line x1="315" y1="162" x2="315" y2="188"/>
+  </g>
+
+  <!-- Footer -->
+  <rect x="50" y="225" width="300" height="35" rx="4" fill="#581c87" opacity="0.06"/>
+  <text x="65" y="244" font-family="system-ui, sans-serif" font-size="9" font-weight="700" fill="#7e22ce">SUN PHARMA INDUSTRIES</text>
+  <text x="335" y="244" font-family="monospace" font-size="8" font-weight="600" fill="#6b21a8" text-anchor="end">BATCH: PCR-502 • EXP: 08/2026</text>
+</svg>
