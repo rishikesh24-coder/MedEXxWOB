@@ -34,7 +34,7 @@ import {
 import { hospitalService } from '../../services/hospitalService';
 import { fetchInventory } from '../../store/slices/hospitalSlice';
 import { calculateMedicineExpiry } from '../../utils/expiryUtils';
-import { getExpiryPricing, isExpiryAcceptable, getRemainingShelfLife, NEAR_EXPIRY_SCHEDULE } from '../../config/nearExpiryPolicy';
+import { getExpiryPricing, isExpiryAcceptable, getRemainingShelfLife, DAYS_PER_MONTH, NEAR_EXPIRY_SCHEDULE } from '../../config/nearExpiryPolicy';
 import { formatCurrency, formatNumber } from '../../utils/formatters';
 import toast from 'react-hot-toast';
 
@@ -188,9 +188,12 @@ const BatchFilterSortToolbar = ({
             className="w-full px-2.5 py-1.5 text-xs rounded-xl border border-slate-300 bg-white text-slate-700 font-medium focus:ring-2 focus:ring-primary-500 focus:outline-none"
           >
             <option value="all">All Expiry Dates</option>
-            <option value="30">Expiring within 30 days (≤30d)</option>
-            <option value="60">Expiring within 60 days (≤60d)</option>
-            <option value="90">Expiring within 90 days (≤90d)</option>
+            <option value="1">Expiring in &lt; 1 month</option>
+            <option value="2">Expiring in &lt; 2 months</option>
+            <option value="3">Expiring in &lt; 3 months</option>
+            <option value="4">Expiring in &lt; 4 months</option>
+            <option value="5">Expiring in &lt; 5 months</option>
+            <option value="6">Expiring in &lt; 6 months</option>
           </select>
         </div>
 
@@ -207,8 +210,7 @@ const BatchFilterSortToolbar = ({
             <option value="all">All Stock Statuses</option>
             <option value="available">Available (In Stock &amp; Valid)</option>
             <option value="low_stock">Low Stock (≤ 25 Units)</option>
-            <option value="expiring_soon">Expiring Soon (≤ 90 Days)</option>
-            <option value="rejected">Expired / Rejected (≤ 30 Days)</option>
+            <option value="expiring_soon">Expiring Soon (31–90 Days)</option>
           </select>
         </div>
 
@@ -493,7 +495,7 @@ export const SellMedicinesWorkflow = ({ onBackToMarketplace }) => {
 
   // Batch-level Filtering & Sorting
   const [batchSearchQuery, setBatchSearchQuery] = useState('');
-  const [batchExpiryFilter, setBatchExpiryFilter] = useState('all'); // 'all' | '30' | '60' | '90'
+  const [batchExpiryFilter, setBatchExpiryFilter] = useState('all'); // 'all' | '1' | '2' | '3' | '4' | '5' | '6'
   const [batchStockStatusFilter, setBatchStockStatusFilter] = useState('all'); // 'all' | 'available' | 'low_stock' | 'expiring_soon' | 'rejected'
   const [batchDosageFormFilter, setBatchDosageFormFilter] = useState('all');
   const [batchRouteFilter, setBatchRouteFilter] = useState('all');
@@ -542,18 +544,22 @@ export const SellMedicinesWorkflow = ({ onBackToMarketplace }) => {
     }
   };
 
-  // All enriched batches for the hospital inventory
+  // All enriched batches for the hospital inventory (filtered at data layer: <=1-month batches excluded)
   const allInventoryBatches = useMemo(() => {
     if (!inventory || inventory.length === 0) return [];
     const list = [];
     inventory.forEach((item) => {
       if (item.status === 'disposed' || item.status === 'pending_disposal') return;
+      const expiryDate = item.expiryDate || item.expiry || '';
+      // Hard near-expiry rule: exclude batches with <= 1 month remaining or expired
+      if (!isExpiryAcceptable(expiryDate)) return;
       list.push(enrichBatchItem(item));
     });
     return list;
   }, [inventory]);
 
   // Group inventory by unique medicine (brand name + power / medicineId)
+  // Only medicines with at least one eligible sellable batch (> 1 month remaining) are shown
   const groupedMedicines = useMemo(() => {
     if (!inventory || inventory.length === 0) return [];
 
@@ -562,6 +568,10 @@ export const SellMedicinesWorkflow = ({ onBackToMarketplace }) => {
     inventory.forEach((item) => {
       // Exclude permanently disposed or non-hospital items
       if (item.status === 'disposed' || item.status === 'pending_disposal') return;
+
+      const expiryDate = item.expiryDate || item.expiry || '';
+      // Exclude batches with <= 1 month remaining or expired
+      if (!isExpiryAcceptable(expiryDate)) return;
 
       const brand = (item.brandName || item.medicineName || '').trim();
       const power = (item.power || item.strength || item.dosage || '').trim();
@@ -601,7 +611,7 @@ export const SellMedicinesWorkflow = ({ onBackToMarketplace }) => {
       entry.maxMrp = Math.max(entry.maxMrp, itemMrp);
     });
 
-    return Array.from(map.values());
+    return Array.from(map.values()).filter((med) => med.batches.length > 0);
   }, [inventory]);
 
   // Unique dosage forms and routes available across inventory batches
@@ -652,10 +662,10 @@ export const SellMedicinesWorkflow = ({ onBackToMarketplace }) => {
     return result;
   }, [groupedMedicines, categoryFilter, searchQuery]);
 
-  // Batches for the currently selected medicine in Step 2
+  // Batches for the currently selected medicine in Step 2 (strictly eligible batches only)
   const selectedMedicineBatches = useMemo(() => {
     if (!selectedMedicine) return [];
-    return selectedMedicine.batches || [];
+    return (selectedMedicine.batches || []).filter((b) => isExpiryAcceptable(b.expiryDate));
   }, [selectedMedicine]);
 
   // Filter and sort pure helper for batches list
@@ -675,13 +685,30 @@ export const SellMedicinesWorkflow = ({ onBackToMarketplace }) => {
       });
     }
 
-    // 2. Expiry Filter (30 days, 60 days, 90 days)
-    if (batchExpiryFilter === '30') {
-      list = list.filter((b) => (b.remainingShelfLife?.days || 0) <= 30);
-    } else if (batchExpiryFilter === '60') {
-      list = list.filter((b) => (b.remainingShelfLife?.days || 0) <= 60);
-    } else if (batchExpiryFilter === '90') {
-      list = list.filter((b) => (b.remainingShelfLife?.days || 0) <= 90);
+    // 2. Expiry Filter (Month-based with strict '<' comparison: <1m, <2m, <3m, <4m, <5m, <6m)
+    const expiryMonthsMap = {
+      '1': 1 * DAYS_PER_MONTH, // < 30 days
+      '<1': 1 * DAYS_PER_MONTH,
+      '30': 1 * DAYS_PER_MONTH,
+      '2': 2 * DAYS_PER_MONTH, // < 60 days
+      '<2': 2 * DAYS_PER_MONTH,
+      '60': 2 * DAYS_PER_MONTH,
+      '3': 3 * DAYS_PER_MONTH, // < 90 days
+      '<3': 3 * DAYS_PER_MONTH,
+      '90': 3 * DAYS_PER_MONTH,
+      '4': 4 * DAYS_PER_MONTH, // < 120 days
+      '<4': 4 * DAYS_PER_MONTH,
+      '120': 4 * DAYS_PER_MONTH,
+      '5': 5 * DAYS_PER_MONTH, // < 150 days
+      '<5': 5 * DAYS_PER_MONTH,
+      '150': 5 * DAYS_PER_MONTH,
+      '6': 6 * DAYS_PER_MONTH, // < 180 days
+      '<6': 6 * DAYS_PER_MONTH,
+      '180': 6 * DAYS_PER_MONTH,
+    };
+    if (batchExpiryFilter !== 'all' && expiryMonthsMap[batchExpiryFilter] !== undefined) {
+      const maxDays = expiryMonthsMap[batchExpiryFilter];
+      list = list.filter((b) => (b.remainingShelfLife?.days ?? 0) < maxDays);
     }
 
     // 3. Stock Status Filter
@@ -690,7 +717,7 @@ export const SellMedicinesWorkflow = ({ onBackToMarketplace }) => {
     } else if (batchStockStatusFilter === 'low_stock') {
       list = list.filter((b) => b.availableStock > 0 && b.availableStock <= 25);
     } else if (batchStockStatusFilter === 'expiring_soon') {
-      list = list.filter((b) => (b.remainingShelfLife?.days || 0) <= 90 && (b.remainingShelfLife?.days || 0) > 0);
+      list = list.filter((b) => (b.remainingShelfLife?.days || 0) <= 90 && (b.remainingShelfLife?.days || 0) > 30);
     } else if (batchStockStatusFilter === 'rejected') {
       list = list.filter((b) => !b.isAcceptable || b.isExpired || (b.remainingShelfLife?.days || 0) <= 30);
     }
@@ -1336,6 +1363,17 @@ export const SellMedicinesWorkflow = ({ onBackToMarketplace }) => {
                   {/* Batches Grid */}
                   {(() => {
                     const filteredBatches = filterAndSortBatches(allInventoryBatches);
+                    if (allInventoryBatches.length === 0) {
+                      return (
+                        <div className="p-12 text-center rounded-2xl border border-dashed border-slate-200 space-y-2">
+                          <Boxes className="w-8 h-8 text-slate-300 mx-auto" />
+                          <div className="text-sm font-bold text-slate-700">No medicines currently eligible for sale</div>
+                          <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                            Medicines with 1 month or less remaining shelf life cannot be listed for sale.
+                          </p>
+                        </div>
+                      );
+                    }
                     if (filteredBatches.length === 0) {
                       return (
                         <div className="p-12 text-center rounded-2xl border border-dashed border-slate-200 space-y-2">
@@ -1406,7 +1444,15 @@ export const SellMedicinesWorkflow = ({ onBackToMarketplace }) => {
                   </div>
 
                   {/* Medicines List / Grid */}
-                  {filteredMedicines.length === 0 ? (
+                  {groupedMedicines.length === 0 ? (
+                    <div className="p-12 text-center rounded-2xl border border-dashed border-slate-200 space-y-2">
+                      <Pill className="w-8 h-8 text-slate-300 mx-auto" />
+                      <div className="text-sm font-bold text-slate-700">No medicines currently eligible for sale</div>
+                      <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                        Medicines with 1 month or less remaining shelf life cannot be listed for sale.
+                      </p>
+                    </div>
+                  ) : filteredMedicines.length === 0 ? (
                     <div className="p-12 text-center rounded-2xl border border-dashed border-slate-200 space-y-2">
                       <Pill className="w-8 h-8 text-slate-300 mx-auto" />
                       <div className="text-sm font-bold text-slate-700">No matching medicines found</div>
@@ -1570,7 +1616,15 @@ export const SellMedicinesWorkflow = ({ onBackToMarketplace }) => {
                       isFilterActive={isBatchFilterActive}
                     />
 
-                    {filteredBatches.length === 0 ? (
+                    {targetPool.length === 0 ? (
+                      <div className="p-10 text-center rounded-2xl border border-dashed border-slate-200 space-y-2">
+                        <Boxes className="w-8 h-8 text-slate-300 mx-auto" />
+                        <div className="text-sm font-bold text-slate-700">No medicines currently eligible for sale</div>
+                        <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                          Medicines with 1 month or less remaining shelf life cannot be listed for sale.
+                        </p>
+                      </div>
+                    ) : filteredBatches.length === 0 ? (
                       <div className="p-10 text-center rounded-2xl border border-dashed border-slate-200 space-y-2">
                         <Boxes className="w-8 h-8 text-slate-300 mx-auto" />
                         <div className="text-sm font-bold text-slate-700">No matching batches found</div>

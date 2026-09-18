@@ -23,11 +23,16 @@ import {
   ExternalLink,
   ChevronRight,
   Info,
-  ArrowRight
+  ArrowRight,
+  Eye,
+  Filter,
+  Layers,
+  ArrowUpRight
 } from 'lucide-react';
 import { fetchTrackingByTxn } from '../../store/slices/trackSlice';
 import StatusBadge from '../../components/common/StatusBadge';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
+import { PortalHistoryNavigation } from '../../components/common/PortalHistoryNavigation';
 import { getStoredItem, setStoredItem, KEYS } from '../../services/storage';
 import { extractCity } from '../../utils/geoUtils';
 import IndiaLiveMap from '../../components/tracking/IndiaLiveMap';
@@ -48,7 +53,10 @@ export const TrackPage = () => {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastRefreshedTime, setLastRefreshedTime] = useState('Just now');
   const [showProofModal, setShowProofModal] = useState(false);
+  const [statusFilter, setStatusFilter] = useState('ALL');
+  const [orderSearchQuery, setOrderSearchQuery] = useState('');
   const processedTargetRef = useRef(null);
+  const mapContainerRef = useRef(null);
 
   useEffect(() => {
     if (queryTxn && queryTxn !== selectedTxn) {
@@ -84,6 +92,9 @@ export const TrackPage = () => {
       const q = txnInput.trim();
       setSelectedTxn(q);
       setSearchParams({ txn: q });
+      if (mapContainerRef.current) {
+        mapContainerRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
     }
   };
 
@@ -91,6 +102,9 @@ export const TrackPage = () => {
     setSelectedTxn(txnId);
     setTxnInput(txnId);
     setSearchParams({ txn: txnId });
+    if (mapContainerRef.current) {
+      mapContainerRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
   };
 
   const handleRefresh = () => {
@@ -143,7 +157,7 @@ export const TrackPage = () => {
 
   const storedTrackings = getStoredItem(KEYS.TRACKING, []);
 
-  // Standard active shipments list scoped to authenticated hospital
+  // Standard active shipments list scoped strictly to authenticated hospital (tenant isolation)
   const availableShipments = useMemo(() => {
     const hospitalId = user?.hospitalId || user?.id;
     const hospitalName = user?.name?.toLowerCase();
@@ -172,10 +186,68 @@ export const TrackPage = () => {
         status: t.status,
         temp: t.temperature || '4.0°C',
         eta: t.eta || 'Today, 06:30 PM',
+        currentLocation: t.currentLocation || 'In Transit',
+        destination: t.destination || 'Hospital Intake Dock',
+        courierName: t.courierName || 'MediCold Bio-Express',
+        updatedAt: t.updatedAt || 'Recent',
+        raw: t
       }));
     }
     return [];
   }, [storedTrackings, user]);
+
+  // Dynamic tracking summary calculated strictly from availableShipments
+  const trackingSummary = useMemo(() => {
+    let active = 0;
+    let inTransit = 0;
+    let delivered = 0;
+    let pending = 0;
+
+    availableShipments.forEach((s) => {
+      const st = (s.status || '').toLowerCase();
+      if (st.includes('deliver') || st.includes('received')) {
+        delivered++;
+      } else if (st.includes('transit')) {
+        inTransit++;
+        active++;
+      } else if (st.includes('order') || st.includes('pending') || st.includes('prepar') || st.includes('dispatch') || st.includes('confirm')) {
+        pending++;
+        active++;
+      } else if (st !== 'cancelled') {
+        active++;
+      }
+    });
+
+    return {
+      active,
+      inTransit,
+      delivered,
+      pending,
+      total: availableShipments.length
+    };
+  }, [availableShipments]);
+
+  // Filtered shipments for "Your Tracked Orders" list
+  const filteredShipments = useMemo(() => {
+    return availableShipments.filter((s) => {
+      const st = (s.status || '').toLowerCase();
+      if (statusFilter === 'IN_TRANSIT' && !st.includes('transit')) return false;
+      if (statusFilter === 'DELIVERED' && !st.includes('deliver') && !st.includes('received')) return false;
+      if (statusFilter === 'PENDING' && !st.includes('order') && !st.includes('pending') && !st.includes('prepar') && !st.includes('dispatch') && !st.includes('confirm')) return false;
+
+      if (orderSearchQuery.trim()) {
+        const q = orderSearchQuery.toLowerCase().trim();
+        const matchesMedicine = s.medicine?.toLowerCase().includes(q);
+        const matchesTxn = s.txnId?.toLowerCase().includes(q);
+        const matchesTrackingNo = s.trackingNo?.toLowerCase().includes(q);
+        const matchesFrom = s.from?.toLowerCase().includes(q);
+        const matchesLocation = s.currentLocation?.toLowerCase().includes(q);
+        return matchesMedicine || matchesTxn || matchesTrackingNo || matchesFrom || matchesLocation;
+      }
+      return true;
+    });
+  }, [availableShipments, statusFilter, orderSearchQuery]);
+
 
   // Active tracking item with standard fallback
   const tracking = currentTracking || {
@@ -224,37 +296,108 @@ export const TrackPage = () => {
   ];
 
   return (
-    <div className="space-y-7 pb-10">
+    <div className="space-y-7 pb-12">
       
-      {/* 1. Header (WHERE AM I? + WHAT IS HAPPENING?) */}
+      {/* 1. PAGE HEADER */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200/80 pb-5">
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
-            Live Tracking
-          </h1>
-          <p className="text-sm text-slate-500 mt-1 font-medium">
-            Track your medicine transfer with live geographic routing across India.
+        <div className="space-y-1">
+          <div className="flex items-center gap-3">
+            <PortalHistoryNavigation portal="hospital" />
+            <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
+              Live Tracking
+            </h1>
+          </div>
+          <p className="text-sm text-slate-500 font-medium">
+            Track your medicine orders and view the latest shipment status in real time.
           </p>
         </div>
 
         <div className="flex items-center gap-3">
           <button
+            type="button"
             onClick={handleRefresh}
             disabled={isRefreshing}
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold transition-all shadow-sm"
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold transition-all shadow-xs cursor-pointer disabled:opacity-60"
           >
             <RefreshCw className={`w-4 h-4 text-slate-500 ${isRefreshing ? 'animate-spin' : ''}`} />
-            <span>Refresh Tracking</span>
+            <span>Refresh Telemetry</span>
           </button>
         </div>
       </div>
 
-      {/* 2. TOP STATUS HERO PANEL (Requirement 9: Visual Focus — Understand in 3 Seconds) */}
-      <div className={`p-6 sm:p-7 rounded-3xl border shadow-sm transition-all relative overflow-hidden ${
+      {/* 2. TRACKING SUMMARY (Calculated strictly from real existing tracking data) */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5 sm:gap-4">
+        {/* Active Deliveries */}
+        <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200/90 shadow-xs flex items-center gap-3.5">
+          <div className="w-11 h-11 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600 shrink-0">
+            <Truck className="w-5 h-5" />
+          </div>
+          <div className="min-w-0">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block font-mono">
+              Active Deliveries
+            </span>
+            <div className="text-2xl font-black text-slate-900 font-mono mt-0.5">
+              {trackingSummary.active}
+            </div>
+            <p className="text-[11px] text-slate-500 truncate">Total in-flight shipments</p>
+          </div>
+        </div>
+
+        {/* In Transit */}
+        <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200/90 shadow-xs flex items-center gap-3.5">
+          <div className="w-11 h-11 rounded-xl bg-sky-50 border border-sky-100 flex items-center justify-center text-sky-600 shrink-0">
+            <Navigation className="w-5 h-5" />
+          </div>
+          <div className="min-w-0">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block font-mono">
+              In Transit
+            </span>
+            <div className="text-2xl font-black text-sky-700 font-mono mt-0.5">
+              {trackingSummary.inTransit}
+            </div>
+            <p className="text-[11px] text-slate-500 truncate">En route on highways</p>
+          </div>
+        </div>
+
+        {/* Delivered / Received */}
+        <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200/90 shadow-xs flex items-center gap-3.5">
+          <div className="w-11 h-11 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600 shrink-0">
+            <CheckCircle2 className="w-5 h-5" />
+          </div>
+          <div className="min-w-0">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block font-mono">
+              Delivered
+            </span>
+            <div className="text-2xl font-black text-emerald-700 font-mono mt-0.5">
+              {trackingSummary.delivered}
+            </div>
+            <p className="text-[11px] text-slate-500 truncate">Received at dock</p>
+          </div>
+        </div>
+
+        {/* Pending / Awaiting Dispatch */}
+        <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200/90 shadow-xs flex items-center gap-3.5">
+          <div className="w-11 h-11 rounded-xl bg-amber-50 border border-amber-100 flex items-center justify-center text-amber-600 shrink-0">
+            <Clock className="w-5 h-5" />
+          </div>
+          <div className="min-w-0">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block font-mono">
+              Awaiting Dispatch
+            </span>
+            <div className="text-2xl font-black text-amber-700 font-mono mt-0.5">
+              {trackingSummary.pending}
+            </div>
+            <p className="text-[11px] text-slate-500 truncate">Order confirmed / packing</p>
+          </div>
+        </div>
+      </div>
+
+      {/* 3. CURRENT SELECTED SHIPMENT HERO BANNER */}
+      <div className={`p-6 sm:p-7 rounded-3xl border shadow-xs transition-all relative overflow-hidden ${
         isDelivered 
-          ? 'bg-gradient-to-br from-emerald-500 to-teal-700 text-white border-emerald-600'
+          ? 'bg-gradient-to-br from-emerald-600 via-teal-700 to-teal-800 text-white border-emerald-600'
           : isInTransit
-            ? 'bg-gradient-to-br from-blue-600 to-primary-700 text-white border-blue-700'
+            ? 'bg-gradient-to-br from-blue-600 via-primary-700 to-indigo-800 text-white border-blue-700'
             : 'bg-gradient-to-br from-slate-800 to-slate-900 text-white border-slate-800'
       }`}>
         <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-5">
@@ -264,40 +407,52 @@ export const TrackPage = () => {
               {isDelivered ? (
                 <>
                   <Check className="w-4 h-4 text-white" />
-                  <span>✓ DELIVERED</span>
+                  <span>DELIVERED & VERIFIED</span>
                 </>
               ) : isInTransit ? (
                 <>
                   <Truck className="w-4 h-4 text-white animate-pulse" />
-                  <span>🚚 IN TRANSIT</span>
+                  <span>IN TRANSIT</span>
                 </>
               ) : (
                 <>
                   <Clock className="w-4 h-4 text-white" />
-                  <span>📦 ORDER CONFIRMED</span>
+                  <span>ORDER CONFIRMED</span>
                 </>
               )}
+              <span className="opacity-60">•</span>
+              <span className="font-mono">{tracking.transactionId}</span>
             </div>
 
-            <h2 className="text-2xl sm:text-3xl font-black tracking-tight leading-snug">
+            <h2 className="text-xl sm:text-2xl lg:text-3xl font-black tracking-tight leading-snug">
               {isDelivered
-                ? 'Medicine successfully delivered to hospital intake dock.'
+                ? `${tracking.medicineName} successfully delivered to intake dock.`
                 : isInTransit
-                  ? 'Your medicine is on the way.'
-                  : 'Transfer approved. Awaiting pickup dispatch.'}
+                  ? `${tracking.medicineName} is in transit to destination.`
+                  : `${tracking.medicineName} transfer approved. Awaiting pickup dispatch.`}
             </h2>
 
-            <p className="text-xs sm:text-sm text-white/80 font-medium">
-              Current Location: <strong className="text-white underline decoration-white/40">{tracking.currentLocation}</strong>
-            </p>
+            <div className="flex flex-wrap items-center gap-y-1 gap-x-4 text-xs sm:text-sm text-white/85 font-medium">
+              <span>
+                Origin: <strong className="text-white">{sellerCity}</strong>
+              </span>
+              <span>→</span>
+              <span>
+                Destination: <strong className="text-white">{buyerCity}</strong>
+              </span>
+              <span className="hidden sm:inline opacity-60">•</span>
+              <span>
+                Current Location: <strong className="text-white underline decoration-white/40">{tracking.currentLocation}</strong>
+              </span>
+            </div>
           </div>
 
           {/* Large Estimated Delivery Highlight */}
-          <div className="p-4 sm:p-5 rounded-2xl bg-white/10 backdrop-blur-md border border-white/15 text-left md:text-right flex-shrink-0 min-w-[210px]">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-white/75 block">
+          <div className="p-4 sm:p-5 rounded-2xl bg-white/10 backdrop-blur-md border border-white/15 text-left md:text-right shrink-0 min-w-[210px]">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-white/75 block">
               {isDelivered ? 'Delivered Timestamp' : 'Estimated Delivery'}
             </span>
-            <div className="text-xl sm:text-2xl font-black font-mono text-white mt-1">
+            <div className="text-lg sm:text-xl font-black font-mono text-white mt-1">
               {tracking.eta}
             </div>
             <span className="text-[11px] text-white/80 block mt-1 font-mono">
@@ -308,41 +463,42 @@ export const TrackPage = () => {
         </div>
       </div>
 
-      {/* 3. MAIN SECTION: MAP (LEFT) + SIDEBAR (RIGHT) */}
-      {/* On Desktop: Left=Map + Timeline, Right=Shipment Info Card + Courier + Active Consignments */}
-      {/* On Mobile: Top Status -> Map -> Route Summary -> Timeline -> Transfer Details (Requirement 11) */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+      {/* 4. MAP SECTION (LOCKED MAP CONTAINER + SIDEBAR DETAILS) */}
+      <div ref={mapContainerRef} className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         
-        {/* LEFT / MAIN COLUMN (lg:col-span-7 xl:col-span-8) */}
+        {/* MAP CONTAINER (LEFT COLUMN) */}
         <div className="lg:col-span-7 xl:col-span-8 space-y-6">
           
-          {/* REAL INTERACTIVE MAP OF INDIA */}
-          <div className="bg-white rounded-3xl border border-slate-200/90 p-5 sm:p-6 shadow-sm space-y-4">
+          <div className="bg-white rounded-3xl border border-slate-200/90 p-5 sm:p-6 shadow-xs space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100">
               <div>
                 <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 font-mono block">
-                  GEOGRAPHIC LIVE ROUTE
+                  GEOGRAPHIC ROUTE & TELEMETRY
                 </span>
-                <h3 className="text-base font-extrabold text-slate-900 flex items-center gap-1.5 mt-0.5">
-                  <MapPin className="w-4 h-4 text-amber-500 animate-bounce" />
-                  <span>{sellerCity} → {buyerCity} Transit Corridor</span>
+                <h3 className="text-lg font-black text-slate-900 flex items-center gap-2 mt-0.5">
+                  <MapPin className="w-4 h-4 text-primary-600 animate-bounce" />
+                  <span>Shipment Location</span>
                 </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Select an order below to view its current shipment location.
+                </p>
               </div>
 
               <div className="text-left sm:text-right">
-                <span className="px-2.5 py-1 rounded-full text-[10px] font-mono font-bold bg-slate-100 text-slate-600 border border-slate-200 inline-block">
-                  Demo Live Location • Tracking Simulation
+                <span className="px-2.5 py-1 rounded-full text-[10px] font-mono font-bold bg-slate-100 text-slate-700 border border-slate-200 inline-flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                  <span>{sellerCity} → {buyerCity} Corridor</span>
                 </span>
               </div>
             </div>
 
-            {/* Embedded Leaflet Map */}
+            {/* EMBEDDED LEAFLET MAP (UNTOUCHED, LOCKED) */}
             <IndiaLiveMap tracking={tracking} />
 
             <div className="pt-2 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between text-xs text-slate-500 gap-2">
-              <span className="flex items-center gap-1 font-mono">
+              <span className="flex items-center gap-1.5 font-mono">
                 <Navigation className="w-3.5 h-3.5 text-primary-600" />
-                Transit: <strong className="text-slate-800">{tracking.currentLocation}</strong>
+                Transit Location: <strong className="text-slate-800">{tracking.currentLocation}</strong>
               </span>
               <span className="text-[11px] text-slate-400">
                 Last telemetry update: {lastRefreshedTime}
@@ -350,39 +506,39 @@ export const TrackPage = () => {
             </div>
           </div>
 
-          {/* ROUTE SUMMARY ROW (Requirement 9 & 11) */}
+          {/* ROUTE SUMMARY ROW */}
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3.5">
-            <div className="bg-white p-4 rounded-2xl border border-slate-200/90 shadow-sm space-y-1">
+            <div className="bg-white p-4 rounded-2xl border border-slate-200/90 shadow-xs space-y-1">
               <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block font-mono">
                 FROM (SELLER)
               </span>
-              <div className="text-sm font-extrabold text-slate-900 leading-snug truncate">
+              <div className="text-sm font-extrabold text-slate-900 leading-snug truncate" title={tracking.senderHospital}>
                 {tracking.senderHospital}
               </div>
               <p className="text-[11px] text-slate-500 font-semibold">{sellerCity}</p>
             </div>
 
-            <div className="bg-white p-4 rounded-2xl border border-slate-200/90 shadow-sm space-y-1">
+            <div className="bg-white p-4 rounded-2xl border border-slate-200/90 shadow-xs space-y-1">
               <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block font-mono">
                 TO (BUYER)
               </span>
-              <div className="text-sm font-extrabold text-slate-900 leading-snug truncate">
+              <div className="text-sm font-extrabold text-slate-900 leading-snug truncate" title={tracking.receiverHospital}>
                 {tracking.receiverHospital}
               </div>
               <p className="text-[11px] text-slate-500 font-semibold">{buyerCity}</p>
             </div>
 
-            <div className="bg-white p-4 rounded-2xl border border-slate-200/90 shadow-sm space-y-1">
+            <div className="bg-white p-4 rounded-2xl border border-slate-200/90 shadow-xs space-y-1">
               <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block font-mono">
                 MEDICINE
               </span>
-              <div className="text-sm font-extrabold text-slate-900 leading-snug truncate">
+              <div className="text-sm font-extrabold text-slate-900 leading-snug truncate" title={tracking.medicineName}>
                 {tracking.medicineName}
               </div>
               <p className="text-[11px] text-slate-500 font-mono">Batch verified</p>
             </div>
 
-            <div className="bg-white p-4 rounded-2xl border border-slate-200/90 shadow-sm space-y-1">
+            <div className="bg-white p-4 rounded-2xl border border-slate-200/90 shadow-xs space-y-1">
               <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block font-mono">
                 QUANTITY
               </span>
@@ -392,19 +548,19 @@ export const TrackPage = () => {
               <p className="text-[11px] text-slate-500">Units reserved</p>
             </div>
 
-            <div className="bg-white p-4 rounded-2xl border border-slate-200/90 shadow-sm space-y-1 col-span-2 sm:col-span-1">
+            <div className="bg-white p-4 rounded-2xl border border-slate-200/90 shadow-xs space-y-1 col-span-2 sm:col-span-1">
               <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block font-mono">
                 TRACKING ID
               </span>
-              <div className="text-sm font-black font-mono text-primary-700 truncate">
+              <div className="text-sm font-black font-mono text-primary-700 truncate" title={tracking.trackingNumber}>
                 {tracking.trackingNumber || `MDX-TRK-${tracking.transactionId}`}
               </div>
               <p className="text-[11px] text-slate-400 font-mono">Txn: {tracking.transactionId}</p>
             </div>
           </div>
 
-          {/* DELIVERY PROGRESS TIMELINE (Requirement 10: 6 Steps) */}
-          <div className="bg-white p-6 sm:p-7 rounded-3xl border border-slate-200/90 shadow-sm space-y-5">
+          {/* DELIVERY PROGRESS TIMELINE */}
+          <div className="bg-white p-6 sm:p-7 rounded-3xl border border-slate-200/90 shadow-xs space-y-5">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div>
                 <h3 className="text-base font-extrabold text-slate-900">Tracking Timeline</h3>
@@ -428,9 +584,9 @@ export const TrackPage = () => {
                   <div className="flex items-center gap-2 relative z-10">
                     <div className={`w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold ${
                       step.completed 
-                        ? 'bg-emerald-600 shadow-sm' 
+                        ? 'bg-emerald-600 shadow-xs' 
                         : step.active 
-                          ? 'bg-blue-600 ring-4 ring-blue-100 animate-pulse shadow-sm' 
+                          ? 'bg-blue-600 ring-4 ring-blue-100 animate-pulse shadow-xs' 
                           : 'bg-slate-200 text-slate-500'
                     }`}>
                       {step.completed ? <Check className="w-4 h-4 stroke-[3]" /> : step.active ? '●' : '○'}
@@ -462,11 +618,11 @@ export const TrackPage = () => {
                     }`} />
                   )}
 
-                  <div className={`w-6 h-6 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0 z-10 ${
+                  <div className={`w-6 h-6 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0 z-10 ${
                     step.completed 
-                      ? 'bg-emerald-600 shadow-sm' 
+                      ? 'bg-emerald-600 shadow-xs' 
                       : step.active 
-                        ? 'bg-blue-600 ring-4 ring-blue-100 animate-pulse shadow-sm' 
+                        ? 'bg-blue-600 ring-4 ring-blue-100 animate-pulse shadow-xs' 
                         : 'bg-slate-200 text-slate-500'
                   }`}>
                     {step.completed ? <Check className="w-3.5 h-3.5 stroke-[3]" /> : step.active ? '●' : '○'}
@@ -490,23 +646,23 @@ export const TrackPage = () => {
 
         </div>
 
-        {/* RIGHT / SIDEBAR COLUMN (lg:col-span-5 xl:col-span-4) */}
+        {/* SIDEBAR COLUMN (RIGHT COLUMN) */}
         <div className="lg:col-span-5 xl:col-span-4 space-y-5 lg:sticky lg:top-6">
           
-          {/* 1. CURRENT SHIPMENT INFORMATION (Requirement 11 Sidebar Card) */}
-          <div className="bg-white rounded-3xl border border-slate-200/90 p-6 shadow-sm space-y-4">
+          {/* CURRENT SHIPMENT DETAILS CARD */}
+          <div className="bg-white rounded-3xl border border-slate-200/90 p-6 shadow-xs space-y-4">
             
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <span className="px-3 py-1 rounded-full bg-blue-50 text-blue-800 border border-blue-200/80 text-xs font-extrabold flex items-center gap-1.5">
                 {isDelivered ? (
                   <>
                     <Check className="w-3.5 h-3.5 text-emerald-600" />
-                    <span>DELIVERED ✓</span>
+                    <span>DELIVERED</span>
                   </>
                 ) : (
                   <>
                     <Truck className="w-3.5 h-3.5 text-blue-600" />
-                    <span>IN TRANSIT 🚚</span>
+                    <span>IN TRANSIT</span>
                   </>
                 )}
               </span>
@@ -537,7 +693,7 @@ export const TrackPage = () => {
                 </div>
               </div>
 
-              {/* Corridor Route Label */}
+              {/* Corridor Route */}
               <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-100 flex items-center justify-between">
                 <div>
                   <span className="text-[10px] text-slate-400 font-mono block uppercase">Origin</span>
@@ -553,8 +709,8 @@ export const TrackPage = () => {
 
           </div>
 
-          {/* 2. DELIVERY INFORMATION & COURIER PARTNER */}
-          <div className="bg-white rounded-3xl border border-slate-200/90 p-6 shadow-sm space-y-4">
+          {/* DELIVERY INFORMATION & COURIER PARTNER */}
+          <div className="bg-white rounded-3xl border border-slate-200/90 p-6 shadow-xs space-y-4">
             <span className="text-xs font-bold uppercase tracking-wider text-slate-400 font-mono block">
               DELIVERY INFORMATION
             </span>
@@ -568,7 +724,7 @@ export const TrackPage = () => {
 
               {/* Courier Contact */}
               <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100 flex items-center gap-2.5 text-slate-700">
-                <Phone className="w-4 h-4 text-primary-600 flex-shrink-0" />
+                <Phone className="w-4 h-4 text-primary-600 shrink-0" />
                 <div className="text-xs">
                   <span className="text-[10px] text-slate-400 block font-medium">Driver / Dispatch Contact</span>
                   <strong className="text-slate-900">{tracking.courierContact}</strong>
@@ -585,7 +741,7 @@ export const TrackPage = () => {
                   </div>
                 </div>
                 <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800">
-                  SAFE
+                  SAFE (2°C - 8°C)
                 </span>
               </div>
             </div>
@@ -596,17 +752,17 @@ export const TrackPage = () => {
                 <button
                   type="button"
                   onClick={() => setShowProofModal(true)}
-                  className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-md transition-all"
+                  className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-sm transition-all cursor-pointer"
                 >
                   <FileCheck2 className="w-4 h-4" />
-                  <span>✓ Delivered • View Delivery Proof</span>
+                  <span>Delivered • View Delivery Proof</span>
                 </button>
               ) : (
                 <div className="space-y-2">
                   <button
                     type="button"
                     onClick={handleReceiveStock}
-                    className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-md shadow-emerald-600/20 transition-all cursor-pointer"
+                    className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-sm transition-all cursor-pointer"
                   >
                     <CheckCircle2 className="w-4 h-4" />
                     <span>Receive Stock & Update Inventory</span>
@@ -614,57 +770,283 @@ export const TrackPage = () => {
                   <button
                     type="button"
                     onClick={() => navigate(`/hospital/my-requests`)}
-                    className="w-full py-2.5 rounded-xl border border-slate-300 hover:bg-slate-50 text-slate-700 font-bold text-xs flex items-center justify-center gap-2 transition-all"
+                    className="w-full py-2.5 rounded-xl border border-slate-300 hover:bg-slate-50 text-slate-700 font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer"
                   >
                     <span>View Transfer Requisition</span>
                     <ExternalLink className="w-3.5 h-3.5" />
                   </button>
                 </div>
               )}
-
-              <button
-                type="button"
-                onClick={handleRefresh}
-                className="w-full py-2.5 rounded-xl border border-slate-300 hover:bg-slate-50 text-slate-700 font-bold text-xs flex items-center justify-center gap-1.5 transition-all"
-              >
-                <RefreshCw className="w-3.5 h-3.5 text-slate-500" />
-                <span>Refresh Tracking Data</span>
-              </button>
             </div>
 
-          </div>
-
-          {/* 3. ACTIVE CONSIGNMENTS SWITCHER (Allows testing all demo shipments) */}
-          <div className="bg-white rounded-3xl border border-slate-200/90 p-5 shadow-sm space-y-3">
-            <span className="text-xs font-bold uppercase tracking-wider text-slate-400 font-mono block">
-              Active Consignments ({availableShipments.length})
-            </span>
-
-            <div className="space-y-2">
-              {availableShipments.map((s) => (
-                <button
-                  key={s.txnId}
-                  type="button"
-                  onClick={() => handleSelectShipment(s.txnId)}
-                  className={`w-full text-left p-3 rounded-2xl border transition-all text-xs flex items-center justify-between ${
-                    selectedTxn?.toLowerCase() === s.txnId?.toLowerCase()
-                      ? 'border-primary-600 bg-primary-50/50 shadow-sm ring-1 ring-primary-600/30'
-                      : 'border-slate-200 hover:bg-slate-50'
-                  }`}
-                >
-                  <div>
-                    <div className="font-extrabold text-slate-900">{s.medicine}</div>
-                    <div className="text-[10px] text-slate-500 font-mono">
-                      {s.units} units • {s.txnId}
-                    </div>
-                  </div>
-                  <StatusBadge status={s.status} className="text-[10px] px-2 py-0.5" />
-                </button>
-              ))}
-            </div>
           </div>
 
         </div>
+
+      </div>
+
+      {/* 5. YOUR TRACKED ORDERS (MAIN REQUESTED IMPROVEMENT BELOW THE MAP) */}
+      <div className="bg-white rounded-3xl border border-slate-200/90 p-6 sm:p-7 shadow-xs space-y-6">
+        
+        {/* Section Header with Filter and Search Controls */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-5 border-b border-slate-100">
+          <div>
+            <div className="flex items-center gap-2.5">
+              <h2 className="text-xl font-black text-slate-900 tracking-tight">
+                Your Tracked Orders
+              </h2>
+              <span className="px-2.5 py-0.5 rounded-full text-xs font-mono font-bold bg-primary-50 text-primary-700 border border-primary-200">
+                {availableShipments.length} Total
+              </span>
+            </div>
+            <p className="text-xs text-slate-500 mt-1">
+              Select any consignment below to display its live transit position on the map above.
+            </p>
+          </div>
+
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+            {/* Search Input */}
+            <div className="relative min-w-[220px]">
+              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                value={orderSearchQuery}
+                onChange={(e) => setOrderSearchQuery(e.target.value)}
+                placeholder="Search orders or medicine..."
+                className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all font-medium placeholder:text-slate-400"
+              />
+            </div>
+
+            {/* Status Filter Tabs */}
+            <div className="inline-flex p-1 rounded-xl bg-slate-100 border border-slate-200/80 text-xs font-semibold select-none">
+              <button
+                type="button"
+                onClick={() => setStatusFilter('ALL')}
+                className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                  statusFilter === 'ALL'
+                    ? 'bg-white text-slate-900 shadow-xs font-bold'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                All ({availableShipments.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setStatusFilter('IN_TRANSIT')}
+                className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                  statusFilter === 'IN_TRANSIT'
+                    ? 'bg-white text-blue-700 shadow-xs font-bold'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                In Transit ({trackingSummary.inTransit})
+              </button>
+              <button
+                type="button"
+                onClick={() => setStatusFilter('PENDING')}
+                className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                  statusFilter === 'PENDING'
+                    ? 'bg-white text-amber-700 shadow-xs font-bold'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Pending ({trackingSummary.pending})
+              </button>
+              <button
+                type="button"
+                onClick={() => setStatusFilter('DELIVERED')}
+                className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                  statusFilter === 'DELIVERED'
+                    ? 'bg-white text-emerald-700 shadow-xs font-bold'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Delivered ({trackingSummary.delivered})
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* SHIPMENT CARDS LIST */}
+        {availableShipments.length === 0 ? (
+          /* Empty State: Hospital has no shipments */
+          <div className="p-12 text-center space-y-4 max-w-md mx-auto">
+            <div className="w-16 h-16 rounded-3xl bg-slate-100 border border-slate-200 flex items-center justify-center mx-auto text-slate-400">
+              <Truck className="w-8 h-8" />
+            </div>
+            <div className="space-y-1.5">
+              <h3 className="text-base font-extrabold text-slate-900">No active shipments</h3>
+              <p className="text-xs text-slate-500 leading-relaxed">
+                You don't currently have any orders available for live tracking. Once a medicine request is approved or dispatched, its real-time telematics will appear here.
+              </p>
+            </div>
+            <div className="pt-2 flex justify-center gap-3">
+              <button
+                type="button"
+                onClick={() => navigate('/hospital/marketplace')}
+                className="px-4 py-2.5 rounded-xl bg-primary-600 hover:bg-primary-700 text-white font-bold text-xs shadow-xs transition-all cursor-pointer"
+              >
+                Browse Marketplace
+              </button>
+              <button
+                type="button"
+                onClick={() => navigate('/hospital/my-requests')}
+                className="px-4 py-2.5 rounded-xl border border-slate-300 hover:bg-slate-50 text-slate-700 font-bold text-xs transition-all cursor-pointer"
+              >
+                View My Requests
+              </button>
+            </div>
+          </div>
+        ) : filteredShipments.length === 0 ? (
+          /* Filter Empty State */
+          <div className="p-8 text-center space-y-3 bg-slate-50/60 rounded-2xl border border-slate-200/80">
+            <AlertCircle className="w-6 h-6 text-slate-400 mx-auto" />
+            <p className="text-xs text-slate-600 font-medium">
+              No shipments found matching filter <strong className="text-slate-800">"{statusFilter}"</strong>
+              {orderSearchQuery ? ` or query "${orderSearchQuery}"` : ''}.
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                setStatusFilter('ALL');
+                setOrderSearchQuery('');
+              }}
+              className="px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-slate-700 text-xs font-bold hover:bg-slate-50 transition-all cursor-pointer"
+            >
+              Reset Filters
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-3.5">
+            {filteredShipments.map((shipment) => {
+              const isSelected = selectedTxn?.toLowerCase() === shipment.txnId?.toLowerCase();
+              const stLower = (shipment.status || '').toLowerCase();
+              const isItemDelivered = stLower.includes('deliver') || stLower.includes('received');
+              const isItemInTransit = stLower.includes('transit');
+
+              return (
+                <div
+                  key={shipment.txnId}
+                  className={`p-4 sm:p-5 rounded-2xl border transition-all duration-200 ${
+                    isSelected
+                      ? 'border-primary-500 bg-primary-50/30 shadow-md ring-2 ring-primary-500/20'
+                      : 'border-slate-200/90 bg-white hover:border-slate-300 hover:bg-slate-50/50 hover:shadow-xs'
+                  }`}
+                >
+                  <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                    
+                    {/* Left Details: IDs, Medicine, Origin/Destination */}
+                    <div className="space-y-2.5 flex-1 min-w-0">
+                      
+                      {/* Top Meta Bar */}
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-mono text-xs font-extrabold text-slate-900 bg-slate-100 px-2.5 py-0.5 rounded-md border border-slate-200/80">
+                          {shipment.txnId}
+                        </span>
+                        <span className="text-slate-300">•</span>
+                        <span className="text-[11px] font-mono text-slate-500">
+                          Consignment: <strong>{shipment.trackingNo || 'Pending Allocation'}</strong>
+                        </span>
+
+                        {/* Status Badge */}
+                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold ${
+                          isItemDelivered 
+                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                            : isItemInTransit
+                              ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                              : 'bg-amber-50 text-amber-700 border border-amber-200'
+                        }`}>
+                          {isItemDelivered ? (
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                          ) : isItemInTransit ? (
+                            <Truck className="w-3.5 h-3.5" />
+                          ) : (
+                            <Clock className="w-3.5 h-3.5" />
+                          )}
+                          <span>{shipment.status?.toUpperCase() || 'CONFIRMED'}</span>
+                        </span>
+
+                        {/* Currently Viewing Indicator */}
+                        {isSelected && (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-primary-600 text-white shadow-xs">
+                            <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                            <span>Currently Viewing on Map</span>
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Main Medicine & Route */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 pt-1">
+                        <div>
+                          <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400 font-bold block">
+                            Medicine & Reserved Stock
+                          </span>
+                          <h4 className="text-sm font-extrabold text-slate-900 mt-0.5 truncate" title={shipment.medicine}>
+                            {shipment.medicine}
+                          </h4>
+                          <p className="text-xs font-mono font-bold text-primary-700 mt-0.5">
+                            {shipment.units} units
+                          </p>
+                        </div>
+
+                        <div>
+                          <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400 font-bold block">
+                            Seller / Origin Facility
+                          </span>
+                          <p className="text-xs font-semibold text-slate-800 mt-0.5 truncate" title={shipment.from}>
+                            {shipment.from}
+                          </p>
+                          <p className="text-[11px] text-slate-500">To: {shipment.to}</p>
+                        </div>
+
+                        <div>
+                          <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400 font-bold block">
+                            Current Location & ETA
+                          </span>
+                          <p className="text-xs font-semibold text-slate-800 mt-0.5 truncate" title={shipment.currentLocation}>
+                            {shipment.currentLocation}
+                          </p>
+                          <p className="text-[11px] text-slate-500 font-mono">
+                            ETA: <strong className="text-slate-700">{shipment.eta}</strong>
+                          </p>
+                        </div>
+                      </div>
+
+                    </div>
+
+                    {/* Right Action: View on Map */}
+                    <div className="flex sm:items-center justify-end shrink-0 pt-2 lg:pt-0 border-t lg:border-t-0 border-slate-100">
+                      {isSelected ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (mapContainerRef.current) {
+                              mapContainerRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                            }
+                          }}
+                          className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-primary-600 text-white text-xs font-bold flex items-center justify-center gap-2 shadow-xs cursor-pointer hover:bg-primary-700 transition-all"
+                        >
+                          <Eye className="w-4 h-4" />
+                          <span>Active on Map</span>
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => handleSelectShipment(shipment.txnId)}
+                          className="w-full sm:w-auto px-4 py-2.5 rounded-xl border border-slate-300 hover:border-primary-500 hover:bg-primary-50 text-slate-700 hover:text-primary-700 text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer shadow-2xs"
+                        >
+                          <span>View on Map</span>
+                          <ArrowRight className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
 
       </div>
 
