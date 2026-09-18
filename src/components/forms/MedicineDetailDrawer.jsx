@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { 
   X, 
   Building2, 
@@ -275,8 +276,13 @@ export const MedicineDetailDrawer = ({
     }
   };
 
-  return (
-    <div className="fixed inset-0 z-50 overflow-y-auto flex items-center justify-center p-3 sm:p-5 bg-slate-950/70 backdrop-blur-sm animate-fadeIn">
+  const drawerJSX = (
+    <div 
+      className="fixed inset-0 z-[100] overflow-y-auto flex items-center justify-center p-3 sm:p-5 bg-slate-950/70 backdrop-blur-sm animate-fadeIn"
+      role="dialog"
+      aria-modal="true"
+      style={{ width: '100vw', height: '100vh', top: 0, left: 0, right: 0, bottom: 0 }}
+    >
       {/* Backdrop click to close */}
       <div className="fixed inset-0" onClick={onClose} />
 
@@ -735,6 +741,8 @@ export const MedicineDetailDrawer = ({
       </div>
     </div>
   );
+
+  return typeof document !== 'undefined' ? createPortal(drawerJSX, document.body) : drawerJSX;
 };
 
 export default MedicineDetailDrawer;

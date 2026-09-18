@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useDispatch, useSelector } from 'react-redux';
 import { useNavigate, Link, useSearchParams, useLocation } from 'react-router-dom';
 import { 
@@ -1201,24 +1202,28 @@ export const HospitalInventory = () => {
         )}
       </div>
 
-      {/* 5. MEDICINE DETAIL DRAWER */}
-      {selectedMedicineForDetails && (
+      {/* 5. MEDICINE DETAIL MODAL */}
+      {selectedMedicineForDetails && typeof document !== 'undefined' && createPortal(
         <div 
-          className="fixed inset-0 z-50 flex justify-end bg-slate-900/60 backdrop-blur-sm animate-fadeIn"
+          className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-5 md:p-6 bg-slate-950/70 backdrop-blur-sm animate-fadeIn overflow-y-auto"
           role="dialog"
           aria-modal="true"
           aria-labelledby="drawer-medicine-title"
+          style={{ width: '100vw', height: '100vh', top: 0, left: 0, right: 0, bottom: 0 }}
         >
           <div 
-            className="absolute inset-0 cursor-pointer" 
+            className="fixed inset-0 cursor-pointer" 
             onClick={() => setSelectedMedicineForDetails(null)} 
-            aria-label="Close drawer overlay"
+            aria-label="Close details overlay"
           />
           
-          <div className="relative w-full max-w-lg bg-white h-full max-h-[100dvh] shadow-2xl flex flex-col z-10 animate-slideLeft overflow-hidden">
+          <div 
+            className="relative w-full max-w-3xl lg:max-w-4xl bg-white max-h-[90vh] rounded-2xl sm:rounded-3xl shadow-2xl flex flex-col z-10 animate-scaleUp overflow-hidden border border-slate-200/90 my-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
             
             {/* Header (Fixed at Top) */}
-            <div className="p-5 border-b border-slate-200 flex items-start justify-between bg-slate-50 shrink-0 select-none">
+            <div className="p-5 sm:p-6 border-b border-slate-200 flex items-start justify-between bg-slate-50 shrink-0 select-none">
               <div>
                 <span className="text-[10px] font-bold uppercase tracking-wider text-primary-700 font-mono">
                   Inventory Details
@@ -1571,7 +1576,8 @@ export const HospitalInventory = () => {
             </div>
 
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* Add / Edit Modal */}
