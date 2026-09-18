@@ -34,14 +34,88 @@ import LoadingSpinner from '../../components/common/LoadingSpinner';
 import { getStoredItem, getHospitalDocumentChecklist, MANDATORY_DOCUMENTS, KEYS } from '../../services/storage';
 import toast from 'react-hot-toast';
 
+/**
+ * Normalizes hospital status across case variations and synonyms.
+ * Supported: pending, pending_approval, under_review, approved, verified, rejected.
+ */
+export const normalizeHospitalStatus = (status) => {
+  const s = String(status || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+  if (s === 'pending' || s === 'pending_approval' || s === 'documents_missing') {
+    return 'pending';
+  }
+  if (s === 'under_review') {
+    return 'under_review';
+  }
+  if (s === 'verified' || s === 'approved') {
+    return 'verified';
+  }
+  if (s === 'rejected') {
+    return 'rejected';
+  }
+  return s;
+};
+
+export const matchesHospitalTab = (hospital, tab) => {
+  if (tab === 'all') return true;
+  const norm = normalizeHospitalStatus(hospital?.status);
+  const targetTab = (tab === 'approved' || tab === 'verified') ? 'verified' : tab;
+  return norm === targetTab;
+};
+
+export const getTabFromParam = (param) => {
+  if (!param) return null;
+  const p = String(param).toLowerCase().trim().replace(/[\s-]+/g, '_');
+  if (p === 'approved' || p === 'verified') return 'verified';
+  if (p === 'pending' || p === 'pending_approval') return 'pending';
+  if (p === 'under_review') return 'under_review';
+  if (p === 'rejected') return 'rejected';
+  if (p === 'all') return 'all';
+  return null;
+};
+
 export const AdminVerification = () => {
   const dispatch = useDispatch();
   const navigate = useNavigate();
   const { hospitals, isLoading } = useSelector((state) => state.admin);
 
+  const [searchParams, setSearchParams] = useSearchParams();
+  const location = useLocation();
+  const processedRef = useRef(false);
+  const queueSectionRef = useRef(null);
+
   // Tabs: 'pending' (default) | 'under_review' | 'verified' | 'rejected' | 'all'
-  const [activeTab, setActiveTab] = useState('pending');
+  const [activeTab, setActiveTab] = useState(() => {
+    const fromUrl = getTabFromParam(searchParams.get('tab') || searchParams.get('status'));
+    return fromUrl || 'pending';
+  });
   const [searchTerm, setSearchTerm] = useState('');
+
+  // Synchronize activeTab if searchParams changes externally
+  useEffect(() => {
+    const fromUrl = getTabFromParam(searchParams.get('tab') || searchParams.get('status'));
+    if (fromUrl && fromUrl !== activeTab) {
+      setActiveTab(fromUrl);
+    }
+  }, [searchParams]);
+
+  // Unified tab selection handler for both summary cards and queue tabs
+  const handleSelectTab = (newTab, shouldScroll = false) => {
+    const targetTab = (newTab === 'approved' || newTab === 'verified') ? 'verified' : newTab;
+    setActiveTab(targetTab);
+
+    try {
+      const nextParams = new URLSearchParams(searchParams);
+      nextParams.set('tab', targetTab);
+      nextParams.delete('status');
+      setSearchParams(nextParams, { replace: true });
+    } catch (e) {
+      console.warn('Failed to update URL tab param', e);
+    }
+
+    if (shouldScroll && queueSectionRef.current) {
+      queueSectionRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  };
 
   // Review Modal State (Req 8)
   const [activeReviewHospital, setActiveReviewHospital] = useState(null);
@@ -64,10 +138,6 @@ export const AdminVerification = () => {
     dispatch(fetchHospitals());
   }, [dispatch]);
 
-  const [searchParams, setSearchParams] = useSearchParams();
-  const location = useLocation();
-  const processedRef = useRef(false);
-
   // Keep activeReviewHospital synchronized with updated Redux state
   useEffect(() => {
     if (activeReviewHospital) {
@@ -86,7 +156,7 @@ export const AdminVerification = () => {
     const found = hospitals.find((h) => h.id === targetHospId);
     if (found) {
       processedRef.current = true;
-      setActiveTab('all');
+      handleSelectTab('all');
       setActiveReviewHospital(found);
       toast.success(`Opening verification dossier for ${found.name}`, { icon: '📋' });
 
@@ -100,36 +170,26 @@ export const AdminVerification = () => {
     }
   }, [hospitals, searchParams, location.state]);
 
-  // Summary Metrics (Req 18: Prioritize Pending Reviews)
-  const pendingCount = hospitals.filter((h) => {
-    const s = (h.status || '').toLowerCase();
-    return s === 'pending' || s === 'pending_approval' || s === 'documents_missing';
-  }).length;
-  const underReviewCount = hospitals.filter((h) => (h.status || '').toLowerCase() === 'under_review').length;
-  const approvedCount = hospitals.filter((h) => {
-    const s = (h.status || '').toLowerCase();
-    return s === 'verified' || s === 'approved';
-  }).length;
-  const rejectedCount = hospitals.filter((h) => (h.status || '').toLowerCase() === 'rejected').length;
+  // Summary Metrics (Req 18: Prioritize Pending Reviews) using unified matcher
+  const pendingCount = useMemo(() => {
+    return hospitals.filter((h) => matchesHospitalTab(h, 'pending')).length;
+  }, [hospitals]);
 
-  // Filtered Hospitals for Current Queue (Req 7, Req 19)
+  const underReviewCount = useMemo(() => {
+    return hospitals.filter((h) => matchesHospitalTab(h, 'under_review')).length;
+  }, [hospitals]);
+
+  const approvedCount = useMemo(() => {
+    return hospitals.filter((h) => matchesHospitalTab(h, 'verified')).length;
+  }, [hospitals]);
+
+  const rejectedCount = useMemo(() => {
+    return hospitals.filter((h) => matchesHospitalTab(h, 'rejected')).length;
+  }, [hospitals]);
+
+  // Filtered Hospitals for Current Queue using identical matching logic
   const tabHospitals = useMemo(() => {
-    return hospitals.filter((h) => {
-      const s = (h.status || '').toLowerCase();
-      if (activeTab === 'pending') {
-        return s === 'pending' || s === 'pending_approval' || s === 'documents_missing';
-      }
-      if (activeTab === 'under_review') {
-        return s === 'under_review';
-      }
-      if (activeTab === 'verified') {
-        return s === 'verified' || s === 'approved';
-      }
-      if (activeTab === 'rejected') {
-        return s === 'rejected';
-      }
-      return true; // 'all'
-    });
+    return hospitals.filter((h) => matchesHospitalTab(h, activeTab));
   }, [hospitals, activeTab]);
 
   const filteredHospitals = useMemo(() => {
@@ -262,7 +322,24 @@ export const AdminVerification = () => {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         
         {/* Prioritized Card: Pending Reviews */}
-        <div className="bg-white p-5 rounded-2xl border-2 border-amber-300 bg-gradient-to-br from-amber-50/40 via-white to-white shadow-sm hover:shadow-md transition-all relative overflow-hidden">
+        <div 
+          role="button"
+          tabIndex={0}
+          onClick={() => handleSelectTab('pending', true)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              handleSelectTab('pending', true);
+            }
+          }}
+          aria-label="Filter by Pending Reviews"
+          aria-pressed={activeTab === 'pending'}
+          className={`p-5 rounded-2xl transition-all relative overflow-hidden cursor-pointer select-none text-left focus:outline-none focus:ring-2 focus:ring-amber-500/50 ${
+            activeTab === 'pending'
+              ? 'bg-gradient-to-br from-amber-50 via-white to-white border-2 border-amber-400 shadow-md ring-2 ring-amber-400/30'
+              : 'bg-white border-2 border-amber-300 bg-gradient-to-br from-amber-50/40 via-white to-white shadow-sm hover:shadow-md hover:border-amber-400'
+          }`}
+        >
           <div className="absolute top-0 right-0 w-24 h-24 bg-amber-400/10 rounded-full blur-xl pointer-events-none" />
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
@@ -271,7 +348,11 @@ export const AdminVerification = () => {
                 Action Needed
               </span>
             </div>
-            <div className="w-9 h-9 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center border border-amber-200">
+            <div className={`w-9 h-9 rounded-xl flex items-center justify-center border transition-colors ${
+              activeTab === 'pending'
+                ? 'bg-amber-500 text-white border-amber-600 shadow-sm'
+                : 'bg-amber-100 text-amber-700 border-amber-200'
+            }`}>
               <Clock className="w-4 h-4 stroke-[2.5]" />
             </div>
           </div>
@@ -282,10 +363,33 @@ export const AdminVerification = () => {
         </div>
 
         {/* Card 2: Approved */}
-        <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm hover:shadow-md transition-all">
+        <div 
+          role="button"
+          tabIndex={0}
+          onClick={() => handleSelectTab('verified', true)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              handleSelectTab('verified', true);
+            }
+          }}
+          aria-label="Filter by Approved"
+          aria-pressed={activeTab === 'verified'}
+          className={`p-5 rounded-2xl transition-all cursor-pointer select-none text-left focus:outline-none focus:ring-2 focus:ring-emerald-500/50 ${
+            activeTab === 'verified'
+              ? 'bg-emerald-50/50 border-2 border-emerald-500 shadow-md ring-2 ring-emerald-500/20'
+              : 'bg-white border border-slate-200/80 shadow-sm hover:shadow-md hover:border-emerald-300'
+          }`}
+        >
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Approved</span>
-            <div className="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center border border-emerald-100">
+            <span className={`text-[11px] font-bold uppercase tracking-wider ${
+              activeTab === 'verified' ? 'text-emerald-800' : 'text-slate-400'
+            }`}>Approved</span>
+            <div className={`w-9 h-9 rounded-xl flex items-center justify-center border transition-colors ${
+              activeTab === 'verified'
+                ? 'bg-emerald-600 text-white border-emerald-700 shadow-sm'
+                : 'bg-emerald-50 text-emerald-700 border-emerald-100'
+            }`}>
               <CheckCircle2 className="w-4 h-4" />
             </div>
           </div>
@@ -294,10 +398,33 @@ export const AdminVerification = () => {
         </div>
 
         {/* Card 3: Rejected */}
-        <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm hover:shadow-md transition-all">
+        <div 
+          role="button"
+          tabIndex={0}
+          onClick={() => handleSelectTab('rejected', true)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              handleSelectTab('rejected', true);
+            }
+          }}
+          aria-label="Filter by Rejected"
+          aria-pressed={activeTab === 'rejected'}
+          className={`p-5 rounded-2xl transition-all cursor-pointer select-none text-left focus:outline-none focus:ring-2 focus:ring-rose-500/50 ${
+            activeTab === 'rejected'
+              ? 'bg-rose-50/50 border-2 border-rose-500 shadow-md ring-2 ring-rose-500/20'
+              : 'bg-white border border-slate-200/80 shadow-sm hover:shadow-md hover:border-rose-300'
+          }`}
+        >
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Rejected</span>
-            <div className="w-9 h-9 rounded-xl bg-rose-50 text-rose-700 flex items-center justify-center border border-rose-100">
+            <span className={`text-[11px] font-bold uppercase tracking-wider ${
+              activeTab === 'rejected' ? 'text-rose-800' : 'text-slate-400'
+            }`}>Rejected</span>
+            <div className={`w-9 h-9 rounded-xl flex items-center justify-center border transition-colors ${
+              activeTab === 'rejected'
+                ? 'bg-rose-600 text-white border-rose-700 shadow-sm'
+                : 'bg-rose-50 text-rose-700 border-rose-100'
+            }`}>
               <X className="w-4 h-4" />
             </div>
           </div>
@@ -308,12 +435,18 @@ export const AdminVerification = () => {
       </div>
 
       {/* 3. QUEUE CONTROLS (Req 7, Req 19: Search pending hospitals & Queue Tabs) */}
-      <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+      <div 
+        ref={queueSectionRef}
+        id="verification-queue"
+        className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 scroll-mt-6"
+      >
         
         {/* Queue Filter Tabs */}
-        <div className="flex flex-wrap items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5" role="tablist" aria-label="Verification queue tabs">
           <button
-            onClick={() => setActiveTab('pending')}
+            role="tab"
+            aria-selected={activeTab === 'pending'}
+            onClick={() => handleSelectTab('pending')}
             className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
               activeTab === 'pending'
                 ? 'bg-amber-500 text-white shadow-md shadow-amber-500/20'
@@ -325,7 +458,9 @@ export const AdminVerification = () => {
           </button>
 
           <button
-            onClick={() => setActiveTab('under_review')}
+            role="tab"
+            aria-selected={activeTab === 'under_review'}
+            onClick={() => handleSelectTab('under_review')}
             className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${
               activeTab === 'under_review'
                 ? 'bg-cyan-600 text-white shadow-sm'
@@ -336,7 +471,9 @@ export const AdminVerification = () => {
           </button>
 
           <button
-            onClick={() => setActiveTab('verified')}
+            role="tab"
+            aria-selected={activeTab === 'verified'}
+            onClick={() => handleSelectTab('verified')}
             className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${
               activeTab === 'verified'
                 ? 'bg-emerald-600 text-white shadow-sm'
@@ -347,7 +484,9 @@ export const AdminVerification = () => {
           </button>
 
           <button
-            onClick={() => setActiveTab('rejected')}
+            role="tab"
+            aria-selected={activeTab === 'rejected'}
+            onClick={() => handleSelectTab('rejected')}
             className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${
               activeTab === 'rejected'
                 ? 'bg-rose-600 text-white shadow-sm'
@@ -358,7 +497,9 @@ export const AdminVerification = () => {
           </button>
 
           <button
-            onClick={() => setActiveTab('all')}
+            role="tab"
+            aria-selected={activeTab === 'all'}
+            onClick={() => handleSelectTab('all')}
             className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${
               activeTab === 'all'
                 ? 'bg-primary-700 text-white shadow-sm'
@@ -394,7 +535,7 @@ export const AdminVerification = () => {
             {filteredHospitals.map((hosp) => {
               const checklist = getHospitalDocumentChecklist(hosp.documents || []);
               const submittedCount = checklist.submittedCount || (hosp.documents?.length || 0);
-              const isHospPending = hosp.status === 'pending' || hosp.status === 'pending_approval' || hosp.status === 'documents_missing';
+              const isHospPending = matchesHospitalTab(hosp, 'pending');
 
               return (
                 <div
@@ -469,7 +610,9 @@ export const AdminVerification = () => {
         ) : (
           <div className="px-6 py-14 text-center text-slate-400">
             <FileCheck2 className="w-10 h-10 mx-auto mb-2 opacity-40" />
-            <p className="font-bold text-slate-700 text-sm">No applications in the {activeTab} queue</p>
+            <p className="font-bold text-slate-700 text-sm">
+              No applications in the {activeTab === 'verified' ? 'approved' : activeTab.replace('_', ' ')} queue
+            </p>
             <p className="text-xs text-slate-400 mt-1">Select a different tab or clear your search query.</p>
           </div>
         )}

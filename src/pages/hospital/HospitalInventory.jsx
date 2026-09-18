@@ -43,6 +43,135 @@ import toast from 'react-hot-toast';
 import { isHospitalSuspended, getLiveHospitalRecord, isHospitalOperational, getStoredItem, KEYS } from '../../services/storage';
 import { calculateMedicineExpiry } from '../../utils/expiryUtils';
 
+/**
+ * Intelligently resolves clinical medicine metadata (dosage form, route, strength, unit, pack size)
+ * from existing medicine fields (dosageForm, form, strength, dosage, power, route, unit, brandName, genericName, category).
+ * Resolves false 'Tablet' fallbacks for Injections, Infusions, Ampoules, Vials, Syrups, Drops, Inhalers, etc.
+ */
+export const resolveMedicineDisplayDetails = (med) => {
+  if (!med) return {
+    dosageForm: 'Tablet',
+    route: 'Oral',
+    strength: 'Standard formulation',
+    unit: 'Tablet',
+    packSize: '15 Tablets / Strip'
+  };
+
+  const brand = (med.brandName || med.medicineName || '').trim();
+  const generic = (med.genericName || '').trim();
+  const power = (med.power || '').trim();
+  const cat = (med.category || '').trim();
+  const existingForm = (med.dosageForm || med.form || '').trim();
+  const existingUnit = (med.unit || '').trim();
+  const existingRoute = (med.route || '').trim();
+  const existingPacking = (med.packSize || med.packing || '').trim();
+
+  // Full composite signature across all available medicine fields
+  const sig = `${existingForm} ${brand} ${generic} ${power} ${cat} ${existingUnit} ${existingPacking}`.toLowerCase();
+
+  // 1. Resolve Dosage Form
+  let dosageForm = 'Tablet';
+  if (
+    sig.includes('injection') || 
+    sig.includes('injectable') || 
+    sig.includes('inj ') || 
+    sig.includes(' inj') ||
+    sig.includes('iv/im') ||
+    sig.includes('ampoule') ||
+    sig.includes(' amp') ||
+    sig.includes('vial') ||
+    sig.includes('lyophilized')
+  ) {
+    if (sig.includes('ampoule') || sig.includes(' amp') || power.toLowerCase().includes('ampoule')) {
+      dosageForm = 'Injection (Ampoule)';
+    } else if (sig.includes('vial') || sig.includes('lyophilized') || power.toLowerCase().includes('vial')) {
+      dosageForm = 'Injection (Vial)';
+    } else if (sig.includes('syringe') || sig.includes('pre-filled') || sig.includes('pen')) {
+      dosageForm = 'Pre-filled Syringe';
+    } else {
+      dosageForm = 'Injection';
+    }
+  } else if (sig.includes('infusion') || sig.includes('iv bag') || sig.includes('iv poly') || power.toLowerCase().includes('bag')) {
+    dosageForm = 'IV Infusion';
+  } else if (sig.includes('inhaler') || sig.includes('respule') || sig.includes('rotacap')) {
+    dosageForm = sig.includes('respule') ? 'Respules' : 'Inhaler';
+  } else if (sig.includes('syrup') || sig.includes('suspension') || sig.includes('elixir') || sig.includes('oral liquid')) {
+    dosageForm = sig.includes('suspension') ? 'Oral Suspension' : 'Oral Syrup';
+  } else if (sig.includes('drop') || sig.includes('ophthalmic') || sig.includes('otic')) {
+    dosageForm = 'Drops';
+  } else if (sig.includes('ointment') || sig.includes('cream') || sig.includes('gel') || sig.includes('topical')) {
+    dosageForm = 'Ointment / Topical';
+  } else if (sig.includes('capsule') || sig.includes('softgel') || sig.includes(' cap')) {
+    dosageForm = 'Capsule';
+  } else if (existingForm && existingForm.toLowerCase() !== 'tablet') {
+    dosageForm = existingForm;
+  } else if (sig.includes('tablet') || sig.includes('tab')) {
+    dosageForm = 'Tablet';
+  } else if (existingForm) {
+    dosageForm = existingForm;
+  }
+
+  // 2. Resolve Route of Administration
+  let route = existingRoute;
+  if (!route || route.toLowerCase() === 'unknown') {
+    if (dosageForm.includes('Injection') || dosageForm.includes('Ampoule') || dosageForm.includes('Vial')) {
+      route = 'Intravenous / Intramuscular';
+    } else if (dosageForm.includes('Infusion')) {
+      route = 'Intravenous (IV)';
+    } else if (dosageForm.includes('Inhaler') || dosageForm.includes('Respule')) {
+      route = 'Inhalation';
+    } else if (dosageForm.includes('Drops')) {
+      route = sig.includes('ear') || sig.includes('otic') ? 'Otic' : 'Ophthalmic';
+    } else if (dosageForm.includes('Ointment') || dosageForm.includes('Topical')) {
+      route = 'Topical';
+    } else {
+      route = 'Oral';
+    }
+  }
+
+  // 3. Resolve Strength / Dosage
+  let strength = (med.dosage || med.strength || '').trim();
+  if (!strength || strength.toLowerCase() === 'standard formulation' || strength === power) {
+    // Extract clinical strength metric from brand or generic name (e.g. 5mg/ml, 600mg, 1,500,000 IU, 100 mcg)
+    const m = (brand + ' ' + generic).match(/(\b\d+(?:[.,]\d+)?\s*(?:mg\/ml|mg\/5ml|mcg\/ml|mg|g|gm|mcg|μg|iu|iu\/ml|%)\b)/i);
+    if (m) {
+      strength = m[1].trim();
+    } else if (power) {
+      strength = power;
+    } else {
+      strength = 'Standard formulation';
+    }
+  }
+
+  // 4. Resolve Unit Type
+  let unit = existingUnit;
+  if (!unit || (unit === 'Tablet' && dosageForm !== 'Tablet')) {
+    if (dosageForm.includes('Ampoule')) unit = 'Ampoule';
+    else if (dosageForm.includes('Vial')) unit = 'Vial';
+    else if (dosageForm.includes('Infusion')) unit = 'Infusion Bag';
+    else if (dosageForm.includes('Inhaler')) unit = 'Canister';
+    else if (dosageForm.includes('Respule')) unit = 'Respule';
+    else if (dosageForm.includes('Syrup') || dosageForm.includes('Suspension') || dosageForm.includes('Drops')) unit = 'Bottle';
+    else if (dosageForm.includes('Ointment')) unit = 'Tube';
+    else if (dosageForm.includes('Capsule')) unit = 'Capsule';
+    else unit = 'Unit';
+  }
+
+  // 5. Resolve Pack Size / Presentation
+  let packSize = existingPacking;
+  if (!packSize || (packSize.includes('Tablet') && dosageForm !== 'Tablet')) {
+    packSize = power || (unit ? `1 ${unit}` : '1 Unit');
+  }
+
+  return {
+    dosageForm,
+    route,
+    strength,
+    unit,
+    packSize,
+  };
+};
+
 export const HospitalInventory = () => {
   const dispatch = useDispatch();
   const navigate = useNavigate();
@@ -70,6 +199,10 @@ export const HospitalInventory = () => {
   const [deleteConfirmMed, setDeleteConfirmMed] = useState(null);
   const [importModalOpen, setImportModalOpen] = useState(false);
 
+  const resolvedMedicineDetails = useMemo(() => {
+    return resolveMedicineDisplayDetails(selectedMedicineForDetails);
+  }, [selectedMedicineForDetails]);
+
   useEffect(() => {
     if (user?.id) {
       dispatch(fetchInventory(user.id));
@@ -82,6 +215,50 @@ export const HospitalInventory = () => {
   const [highlightedId, setHighlightedId] = useState(null);
   const [highlightFeedback, setHighlightFeedback] = useState(null);
   const processedTargetRef = useRef(null);
+  const drawerScrollRef = useRef(null);
+
+  // Reset drawer scroll position to top whenever opened or medicine changes
+  useEffect(() => {
+    if (selectedMedicineForDetails) {
+      if (drawerScrollRef.current) {
+        drawerScrollRef.current.scrollTop = 0;
+      }
+      const raf = requestAnimationFrame(() => {
+        if (drawerScrollRef.current) {
+          drawerScrollRef.current.scrollTop = 0;
+        }
+      });
+      return () => cancelAnimationFrame(raf);
+    }
+  }, [selectedMedicineForDetails?.id]);
+
+  // Lock background page scroll and support Escape key while drawer is open
+  useEffect(() => {
+    if (!selectedMedicineForDetails) return;
+
+    const originalOverflow = document.body.style.overflow;
+    const originalPaddingRight = document.body.style.paddingRight;
+    const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth;
+
+    if (scrollbarWidth > 0) {
+      document.body.style.paddingRight = `${scrollbarWidth}px`;
+    }
+    document.body.style.overflow = 'hidden';
+
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        setSelectedMedicineForDetails(null);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = originalOverflow;
+      document.body.style.paddingRight = originalPaddingRight;
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [Boolean(selectedMedicineForDetails)]);
 
   useEffect(() => {
     if (selectedMedicineForDetails) {
@@ -1026,18 +1203,27 @@ export const HospitalInventory = () => {
 
       {/* 5. MEDICINE DETAIL DRAWER */}
       {selectedMedicineForDetails && (
-        <div className="fixed inset-0 z-50 flex justify-end bg-slate-900/60 backdrop-blur-sm animate-fadeIn">
-          <div className="absolute inset-0" onClick={() => setSelectedMedicineForDetails(null)} />
+        <div 
+          className="fixed inset-0 z-50 flex justify-end bg-slate-900/60 backdrop-blur-sm animate-fadeIn"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="drawer-medicine-title"
+        >
+          <div 
+            className="absolute inset-0 cursor-pointer" 
+            onClick={() => setSelectedMedicineForDetails(null)} 
+            aria-label="Close drawer overlay"
+          />
           
-          <div className="relative w-full max-w-lg bg-white h-full shadow-2xl flex flex-col justify-between overflow-y-auto z-10 animate-slideLeft">
+          <div className="relative w-full max-w-lg bg-white h-full max-h-[100dvh] shadow-2xl flex flex-col z-10 animate-slideLeft overflow-hidden">
             
-            {/* Header */}
-            <div className="p-5 border-b border-slate-200 flex items-start justify-between bg-slate-50 sticky top-0 z-10">
+            {/* Header (Fixed at Top) */}
+            <div className="p-5 border-b border-slate-200 flex items-start justify-between bg-slate-50 shrink-0 select-none">
               <div>
                 <span className="text-[10px] font-bold uppercase tracking-wider text-primary-700 font-mono">
                   Inventory Details
                 </span>
-                <h2 className="text-xl font-black text-slate-900 leading-tight">
+                <h2 id="drawer-medicine-title" className="text-xl font-black text-slate-900 leading-tight">
                   {selectedMedicineForDetails.brandName || selectedMedicineForDetails.medicineName} {selectedMedicineForDetails.power || selectedMedicineForDetails.strength || ''}
                 </h2>
                 <p className="text-xs text-slate-500 font-medium mt-0.5">
@@ -1046,15 +1232,22 @@ export const HospitalInventory = () => {
               </div>
 
               <button
+                type="button"
                 onClick={() => setSelectedMedicineForDetails(null)}
+                aria-label="Close details"
                 className="p-2 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            {/* Organized Sections */}
-            <div className="p-6 space-y-6 flex-1 text-xs">
+            {/* Organized Sections - Dedicated Vertical Scroll Container */}
+            <div 
+              key={selectedMedicineForDetails.id}
+              ref={drawerScrollRef}
+              tabIndex={-1}
+              className="p-6 pb-12 space-y-6 flex-1 min-h-0 overflow-y-auto overflow-x-hidden text-xs overscroll-contain focus:outline-none"
+            >
               
               {/* STATUS BANNER */}
               <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-between">
@@ -1098,11 +1291,19 @@ export const HospitalInventory = () => {
                   </div>
                   <div>
                     <span className="text-[10px] text-slate-400 block font-medium">Dosage Form</span>
-                    <strong className="text-slate-800">{selectedMedicineForDetails.form || selectedMedicineForDetails.dosageForm || 'Tablet'}</strong>
+                    <strong className="text-slate-800">{resolvedMedicineDetails.dosageForm}</strong>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-400 block font-medium">Route of Administration</span>
+                    <strong className="text-slate-800">{resolvedMedicineDetails.route}</strong>
                   </div>
                   <div>
                     <span className="text-[10px] text-slate-400 block font-medium">Dosage / Strength</span>
-                    <strong className="text-slate-800">{selectedMedicineForDetails.dosage || selectedMedicineForDetails.power || selectedMedicineForDetails.strength || 'Standard formulation'}</strong>
+                    <strong className="text-slate-800">{resolvedMedicineDetails.strength}</strong>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-400 block font-medium">Packaging / Power</span>
+                    <strong className="text-slate-800">{selectedMedicineForDetails.power || resolvedMedicineDetails.packSize}</strong>
                   </div>
                   <div className="col-span-2">
                     <span className="text-[10px] text-slate-400 block font-medium">Manufacturer / Pharma</span>
@@ -1169,11 +1370,11 @@ export const HospitalInventory = () => {
 
                   <div>
                     <span className="text-[10px] text-slate-400 block font-medium">Pack Size</span>
-                    <strong className="text-slate-800">{selectedMedicineForDetails.packSize || selectedMedicineForDetails.packing || '15 Tablets / Strip'}</strong>
+                    <strong className="text-slate-800">{resolvedMedicineDetails.packSize}</strong>
                   </div>
                   <div>
                     <span className="text-[10px] text-slate-400 block font-medium">Unit Type</span>
-                    <strong className="text-slate-800">{selectedMedicineForDetails.unit || 'Tablet'}</strong>
+                    <strong className="text-slate-800">{resolvedMedicineDetails.unit}</strong>
                   </div>
                   <div>
                     <span className="text-[10px] text-slate-400 block font-medium">Number of Packs</span>
@@ -1336,29 +1537,34 @@ export const HospitalInventory = () => {
                 </div>
               )}
 
+              {/* Bottom Spacer ensuring content is completely clear of footer at bottom scroll */}
+              <div className="h-10 shrink-0" aria-hidden="true" />
+
             </div>
 
-            {/* Actions Bottom Bar */}
-            <div className="p-5 border-t border-slate-200 bg-white sticky bottom-0 flex items-center justify-between gap-3">
+            {/* Actions Bottom Bar (Fixed at Bottom) */}
+            <div className="p-4 sm:p-5 border-t border-slate-200 bg-white shrink-0 flex items-center justify-between gap-3 shadow-[0_-4px_12px_rgba(0,0,0,0.06)] z-20">
               <button
+                type="button"
                 onClick={() => {
                   const med = selectedMedicineForDetails;
                   setSelectedMedicineForDetails(null);
                   handleOpenEdit(med);
                 }}
                 disabled={selectedMedicineForDetails.status === 'disposed' || isOperationalLocked}
-                className="flex-1 py-2.5 rounded-xl border border-slate-300 hover:bg-slate-50 text-slate-700 font-bold text-xs text-center disabled:opacity-40 disabled:cursor-not-allowed"
+                className="flex-1 py-2.5 rounded-xl border border-slate-300 hover:bg-slate-50 text-slate-700 font-bold text-xs text-center disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               >
                 Edit Parameters
               </button>
               <button
+                type="button"
                 onClick={() => {
                   const med = selectedMedicineForDetails;
                   setSelectedMedicineForDetails(null);
                   setDeleteConfirmMed(med);
                 }}
                 disabled={isOperationalLocked}
-                className="py-2.5 px-4 rounded-xl border border-rose-200 text-rose-700 hover:bg-rose-50 font-bold text-xs disabled:opacity-40 disabled:cursor-not-allowed"
+                className="py-2.5 px-4 rounded-xl border border-rose-200 text-rose-700 hover:bg-rose-50 font-bold text-xs disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               >
                 Delete Record
               </button>

@@ -1,0 +1,27 @@
+# Render Blueprint Specification for MedEx Frontend Static Site
+# Documentation: https://render.com/docs/blueprint-spec
+
+services:
+  - type: web
+    name: medex-frontend
+    runtime: static
+    buildCommand: npm run build
+    staticPublishPath: ./dist
+    headers:
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: X-Frame-Options
+        value: SAMEORIGIN
+      - path: /*
+        name: Referrer-Policy
+        value: strict-origin-when-cross-origin
+      - path: /*
+        name: Permissions-Policy
+        value: camera=(), microphone=(), geolocation=(self)
+    routes:
+      # SPA fallback: Rewrite all routes to /index.html for client-side routing
+      - type: rewrite
+        source: /*
+        destination: /index.html

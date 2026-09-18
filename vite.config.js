@@ -9,6 +9,7 @@ import react from '@vitejs/plugin-react'
  * should also be enforced at the reverse proxy / CDN edge (e.g. Nginx, Cloudflare, AWS CloudFront).
  */
 export default defineConfig({
+  base: '/',
   plugins: [react()],
   build: {
     rollupOptions: {
