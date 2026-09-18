@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const axios = require('axios');
 const environment = require('../config/environment');
 const logger = require('../utils/logger');
 
@@ -66,12 +67,45 @@ class RazorpayAdapter extends PaymentProviderInterface {
           status: order.status,
         };
       } catch (err) {
-        logger.error('Razorpay orders.create failed:', err);
-        throw new Error(`Razorpay order creation failed: ${err.message}`);
+        logger.error('Razorpay SDK orders.create failed:', err.message);
       }
     }
 
-    // Direct HTTP or test mock fallback if SDK not active
+    // Direct HTTP API execution using Basic Auth if SDK not active or failed
+    if (this.keyId && this.keySecret) {
+      try {
+        const authHeader = 'Basic ' + Buffer.from(`${this.keyId}:${this.keySecret}`).toString('base64');
+        const response = await axios.post(
+          'https://api.razorpay.com/v1/orders',
+          {
+            amount: amountInPaise,
+            currency,
+            receipt,
+            notes,
+          },
+          {
+            headers: {
+              Authorization: authHeader,
+              'Content-Type': 'application/json',
+            },
+            timeout: 10000,
+          }
+        );
+        return {
+          id: response.data.id,
+          amount: response.data.amount,
+          currency: response.data.currency,
+          receipt: response.data.receipt,
+          status: response.data.status,
+        };
+      } catch (httpErr) {
+        const detail = httpErr.response?.data?.error?.description || httpErr.message;
+        logger.error('Razorpay REST orders.create failed:', detail);
+        throw new Error(`Razorpay order creation failed: ${detail}`);
+      }
+    }
+
+    // Deterministic test order fallback if running in disconnected test environment
     const orderId = `order_${crypto.randomBytes(8).toString('hex')}`;
     return {
       id: orderId,

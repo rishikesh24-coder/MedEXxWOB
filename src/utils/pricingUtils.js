@@ -120,6 +120,8 @@ export const calculateOrderPricing = ({
     totalConcession: totalSavings,
     medicineSubtotal,
     finalSellingPrice: medicineSubtotal,
+    subtotal: originalSubtotal,
+    concessionSavings: totalSavings,
     distanceKm: dist,
     isColdChain,
     logisticsFee,

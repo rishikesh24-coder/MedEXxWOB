@@ -26,8 +26,9 @@ export const PurchaseInvoiceViewer = ({ medicine }) => {
   if (!medicine) return null;
 
   // Derive or use provided invoice data
+  const rawBatch = String(medicine.batchNo || medicine.batchNumber || '9901');
   const invoice = medicine.invoice || {
-    invoiceNumber: `DEMO-INV-${(medicine.batchNo || '9901').replace(/[^a-zA-Z0-9]/g, '')}`,
+    invoiceNumber: `DEMO-INV-${rawBatch.replace(/[^a-zA-Z0-9]/g, '')}`,
     invoiceDate: medicine.mfgDate || '12 Apr 2026',
     supplier: medicine.manufacturer || 'Sun Pharmaceutical Industries Ltd.',
     supplierAddress: 'Plot 22, MIDC Industrial Area, Maharashtra 411018',
@@ -39,11 +40,11 @@ export const PurchaseInvoiceViewer = ({ medicine }) => {
     composition: medicine.genericName,
     dosageForm: medicine.dosageForm || 'Tablet',
     hsnCode: '30049099',
-    batchNumber: medicine.batchNo || 'PCM2401',
+    batchNumber: rawBatch,
     mfgDate: medicine.mfgDate || '04/2024',
     expiryDate: medicine.expiryDate || '04/2027',
-    quantity: medicine.quantity ? Math.min(medicine.quantity, 1000) : 1000,
-    rate: medicine.unitOriginalPrice ? Number((medicine.unitOriginalPrice * 0.8).toFixed(2)) : 1.20,
+    quantity: medicine.quantity ? Math.min(Number(medicine.quantity) || 1000, 1000) : 1000,
+    rate: medicine.unitOriginalPrice ? Number((Number(medicine.unitOriginalPrice) * 0.8).toFixed(2)) : 1.20,
     amount: 1200.00,
     taxableAmount: 1200.00,
     cgstPercent: 6,
@@ -56,9 +57,11 @@ export const PurchaseInvoiceViewer = ({ medicine }) => {
     signatory: 'Authorized Pharmacist (Quality Control)',
   };
 
-  const invoiceAmount = Number(invoice.amount || (invoice.quantity * invoice.rate)).toFixed(2);
-  const totalTax = Number(invoice.totalTax || (invoice.amount * 0.12)).toFixed(2);
-  const totalAmount = Number(invoice.total || (Number(invoiceAmount) + Number(totalTax))).toFixed(2);
+  const numRate = Number(invoice.rate) || 0;
+  const numQty = Number(invoice.quantity) || 0;
+  const invoiceAmount = Number(invoice.amount || (numQty * numRate) || 0).toFixed(2);
+  const totalTax = Number(invoice.totalTax || (Number(invoiceAmount) * 0.12) || 0).toFixed(2);
+  const totalAmount = Number(invoice.total || (Number(invoiceAmount) + Number(totalTax)) || 0).toFixed(2);
 
   const handlePrint = () => {
     window.print();

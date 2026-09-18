@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { 
   X, 
@@ -27,7 +27,7 @@ import PurchaseInvoiceViewer from '../hospital/PurchaseInvoiceViewer';
 import { calculateOrderPricing } from '../../utils/pricingUtils';
 import { findAlternatives, extractMedicineComposition, CLINICAL_SAFETY_DISCLAIMER } from '../../services/medicineAlternativeService';
 import { validateRequisition } from '../../utils/validation';
-import { getExpiryPricing, isExpiryAcceptable } from '../../config/nearExpiryPolicy';
+import { getExpiryPricing, isExpiryAcceptable, getRemainingShelfLife } from '../../config/nearExpiryPolicy';
 import toast from 'react-hot-toast';
 
 // ============================================================
@@ -60,15 +60,15 @@ function formatDecimal(value, fractionDigits = 2) {
 function normalizeMedicine(med) {
   if (!med) return null;
 
-  const rawPrice = med.unitOriginalPrice ?? med.price ?? med.unitPrice ?? 0;
+  const rawPrice = med.unitOriginalPrice ?? med.price ?? med.unitPrice ?? med.mrp ?? 0;
   const numPrice = Number(rawPrice);
   const safePrice = Number.isFinite(numPrice) ? Math.max(0, numPrice) : 0;
 
-  const rawQty = med.quantity ?? med.stock ?? 0;
+  const rawQty = med.quantity ?? med.availableQuantity ?? med.availableStock ?? med.stock ?? med.totalUnits ?? 0;
   const numQty = Number(rawQty);
   const safeQty = Number.isFinite(numQty) ? Math.max(0, Math.floor(numQty)) : 0;
 
-  const rawConcession = med.concessionPercent ?? med.discountPercent ?? 0;
+  const rawConcession = med.concessionPercent ?? med.discountPercent ?? med.concessionRate ?? 0;
   const numConcession = Number(rawConcession);
   const safeConcession = Number.isFinite(numConcession) ? Math.max(0, Math.min(100, numConcession)) : 0;
 
@@ -84,7 +84,7 @@ function normalizeMedicine(med) {
     power: med.power || med.strength || med.dosage || 'Not available',
     dosageForm: med.dosageForm || med.form || 'Tablet',
     route: med.route || 'Oral',
-    hospitalName: med.hospitalName || med.hospital || med.seller || 'Authorized Hospital',
+    hospitalName: med.hospitalName || med.hospital || med.seller || med.sellerHospital || med.sellerHospitalName || 'Authorized Hospital',
     location: med.location || med.city || 'Not available',
     distanceKm: safeDistance,
     batchNo: med.batchNo || med.batchNumber || med.batch || 'Not available',
@@ -93,11 +93,13 @@ function normalizeMedicine(med) {
     manufacturer: med.manufacturer || 'Not available',
     packSize: med.packing || med.packSize || med.unit || '15 Tablets',
     shelfLocation: med.shelfLocation || 'Rack A - Shelf 3',
-    storageType: med.storageType || 'Room Temperature',
+    storageType: med.storageType || med.storageCondition || 'Room Temperature',
     category: med.category || 'Pharmaceutical',
     quantity: safeQty,
     stock: safeQty,
+    availableQuantity: safeQty,
     unitOriginalPrice: safePrice,
+    mrp: safePrice,
     price: safePrice,
     unitPrice: safePrice,
     concessionPercent: safeConcession,
@@ -111,7 +113,7 @@ function normalizeMedicine(med) {
  * 1. Actual medicine/product image gallery & fallback
  * 2. Medicine header, category, storage protocol
  * 3. Composition table (Active ingredient, strength, form, route, manufacturer, pack size)
- * 4. Manufacturer, batch number, expiry date
+ * 4. Manufacturer, batch number, expiry date, remaining shelf life
  * 5. Seller hospital & verified status
  * 6. Stock & unit pricing with concession discounts
  * 7. B2B Purchase Bill / Invoice provenance viewer
@@ -127,6 +129,8 @@ export const MedicineDetailDrawer = ({
   onOpenAlternatives,
   marketplace = []
 }) => {
+  const drawerScrollRef = useRef(null);
+
   // Raw medicine object tracked internally for alternative switching
   const [activeMedRaw, setActiveMedRaw] = useState(medicine);
   const [requestQty, setRequestQty] = useState(1);
@@ -138,6 +142,9 @@ export const MedicineDetailDrawer = ({
   useEffect(() => {
     setActiveMedRaw(medicine);
     setShow3DView(false);
+    if (drawerScrollRef.current) {
+      drawerScrollRef.current.scrollTop = 0;
+    }
   }, [medicine]);
 
   // Normalized safe medicine object guaranteed to never produce undefined field crashes
@@ -218,11 +225,20 @@ export const MedicineDetailDrawer = ({
     };
   }, [activeMed, requestQty]);
 
-  if (!isOpen || !activeMed) return null;
-
+  // Centralized policy pricing calculation - ALWAYS top level before conditional return
   const policyPricing = useMemo(() => {
-    return getExpiryPricing(activeMed?.expiryDate, activeMed?.unitOriginalPrice);
+    if (!activeMed) return { concessionPercent: 0, acceptable: true, rejectionReason: null };
+    return getExpiryPricing(activeMed.expiryDate, activeMed.unitOriginalPrice);
   }, [activeMed?.expiryDate, activeMed?.unitOriginalPrice]);
+
+  // Centralized shelf life calculation
+  const shelfLife = useMemo(() => {
+    if (!activeMed) return { days: 0, formatted: 'N/A', isExpired: false };
+    return getRemainingShelfLife(activeMed.expiryDate);
+  }, [activeMed?.expiryDate]);
+
+  // Conditional early return safely placed AFTER ALL HOOKS
+  if (!isOpen || !activeMed) return null;
 
   const concession = policyPricing.concessionPercent;
   const finalUnitPrice = pricing.unitFinalPrice;
@@ -270,9 +286,8 @@ export const MedicineDetailDrawer = ({
   const handleSelectAlternative = (altMedicine) => {
     setActiveMedRaw(altMedicine);
     // Smoothly scroll container to top
-    const container = document.getElementById('medicine-detail-modal-body');
-    if (container) {
-      container.scrollTo({ top: 0, behavior: 'smooth' });
+    if (drawerScrollRef.current) {
+      drawerScrollRef.current.scrollTo({ top: 0, behavior: 'smooth' });
     }
   };
 
@@ -284,7 +299,11 @@ export const MedicineDetailDrawer = ({
       style={{ width: '100vw', height: '100vh', top: 0, left: 0, right: 0, bottom: 0 }}
     >
       {/* Backdrop click to close */}
-      <div className="fixed inset-0" onClick={onClose} />
+      <div 
+        className="fixed inset-0 cursor-pointer" 
+        onClick={onClose} 
+        aria-label="Close details overlay" 
+      />
 
       {/* Modal Card Container */}
       <div 
@@ -334,7 +353,13 @@ export const MedicineDetailDrawer = ({
         </div>
 
         {/* SCROLLABLE 2-COLUMN PRODUCT DETAIL BODY */}
-        <div id="medicine-detail-modal-body" className="p-5 sm:p-8 overflow-y-auto space-y-8 flex-1 bg-slate-50/40 font-sans">
+        <div 
+          id="medicine-detail-modal-body" 
+          key={activeMed.id}
+          ref={drawerScrollRef}
+          tabIndex={-1}
+          className="p-5 sm:p-8 overflow-y-auto space-y-8 flex-1 bg-slate-50/40 font-sans focus:outline-none overscroll-contain"
+        >
           
           {/* 2-COLUMN GRID (DESKTOP: 5 / 7 RATIO) */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
@@ -407,21 +432,29 @@ export const MedicineDetailDrawer = ({
                   </div>
                 </div>
 
-                {/* Batch, Mfg, Expiry, Storage Specs */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs pt-1 font-mono">
+                {/* Batch, Mfg, Expiry, Shelf Life, Storage Specs */}
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 text-xs pt-1 font-mono">
                   <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-100">
                     <span className="text-[9px] text-slate-400 block font-bold uppercase">Batch Lot</span>
-                    <span className="font-bold text-slate-800 text-xs">{activeMed.batchNo}</span>
+                    <span className="font-bold text-slate-800 text-xs truncate block">{activeMed.batchNo}</span>
                   </div>
                   <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-100">
                     <span className="text-[9px] text-slate-400 block font-bold uppercase">Mfg Date</span>
-                    <span className="font-semibold text-slate-700 text-xs">{activeMed.mfgDate}</span>
+                    <span className="font-semibold text-slate-700 text-xs truncate block">{activeMed.mfgDate}</span>
                   </div>
                   <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-100">
                     <span className="text-[9px] text-slate-400 block font-bold uppercase">Expiry Date</span>
-                    <span className="font-bold text-amber-700 text-xs">{activeMed.expiryDate}</span>
+                    <span className="font-bold text-amber-700 text-xs truncate block">{activeMed.expiryDate}</span>
                   </div>
                   <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-100">
+                    <span className="text-[9px] text-slate-400 block font-bold uppercase">Shelf Life</span>
+                    <span className={`font-bold text-xs truncate block ${
+                      shelfLife.isExpired ? 'text-rose-600' : shelfLife.days <= 30 ? 'text-amber-700' : 'text-emerald-700'
+                    }`}>
+                      {shelfLife.formatted || (shelfLife.days > 0 ? `${shelfLife.days}d left` : 'Expired')}
+                    </span>
+                  </div>
+                  <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-100 col-span-2 sm:col-span-1">
                     <span className="text-[9px] text-slate-400 block font-bold uppercase">Storage</span>
                     <span className={`font-bold text-[11px] truncate block ${
                       isColdChain ? 'text-cyan-700' : 'text-slate-700'
@@ -450,13 +483,13 @@ export const MedicineDetailDrawer = ({
                       <tr>
                         <td className="py-2 text-slate-500 font-semibold w-1/3">Active Ingredient</td>
                         <td className="py-2 text-slate-900 font-extrabold capitalize">
-                          {compositionSpecs?.ingredients?.[0]?.name || activeMed.genericName}
+                          {compositionSpecs?.activeIngredients?.[0]?.name || compositionSpecs?.ingredients?.[0]?.name || activeMed.genericName}
                         </td>
                       </tr>
                       <tr>
                         <td className="py-2 text-slate-500 font-semibold">Strength / Potency</td>
                         <td className="py-2 text-slate-900 font-extrabold font-mono">
-                          {compositionSpecs?.normalizedStrength || activeMed.power}
+                          {activeMed.power}
                         </td>
                       </tr>
                       <tr>

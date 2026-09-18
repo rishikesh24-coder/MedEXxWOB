@@ -8,6 +8,9 @@ const router = express.Router();
 // 1. Gateway Webhook Endpoint (Unauthenticated, signature verified, rate limited)
 router.post('/webhook', webhookLimiter, paymentController.handleWebhook);
 
+// Public/client-safe gateway configuration
+router.get('/config', paymentController.getConfig);
+
 // 2. Authenticated Endpoints
 router.use(authenticateUser);
 

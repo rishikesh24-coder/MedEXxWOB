@@ -784,6 +784,20 @@ export const getLiveHospitalRecord = (hospitalId) => {
   return hospitals.find((h) => h.id === hospitalId || h.email?.toLowerCase() === hospitalId?.toLowerCase()) || null;
 };
 
+/**
+ * Authoritative helper for retrieving the currently authenticated hospital identity.
+ * Enforces strict tenant isolation: Hospital portal components must only use this identity.
+ */
+export const getAuthenticatedHospital = () => {
+  const session = getStoredItem(KEYS.AUTH, null);
+  if (!session?.user || session.user.role !== 'hospital') {
+    return null;
+  }
+  const hospitalId = session.user.hospitalId || session.user.id;
+  const liveRecord = getLiveHospitalRecord(hospitalId);
+  return liveRecord ? { ...session.user, ...liveRecord } : session.user;
+};
+
 export const isHospitalOperational = (hospitalId) => {
   if (!hospitalId) return false;
   const hospitals = getStoredItem(KEYS.HOSPITALS, []);

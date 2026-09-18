@@ -26,13 +26,25 @@ const assertHospitalActive = (requestedHospitalId) => {
 };
 
 /**
- * Resolves current hospital ID from session or param, never falling back to a hardcoded hospital
+ * Resolves current hospital ID strictly enforcing tenant isolation:
+ * - For a hospital-role user, ALWAYS returns the authenticated hospital ID.
+ *   Arbitrary hospitalId parameters passed by callers are strictly ignored to prevent tenant leakage.
+ * - For an admin-role user, allows supervisory inspection of hospitalIdParam.
  */
-const resolveHospitalId = (hospitalId) => {
-  if (hospitalId) return hospitalId;
+const resolveHospitalId = (hospitalIdParam) => {
   const session = getStoredItem(KEYS.AUTH, null);
-  if (session?.user?.role === 'hospital') return session.user.id;
-  return null;
+  const user = session?.user;
+  const authHospitalId = user?.hospitalId || user?.id;
+
+  if (user?.role === 'hospital') {
+    return authHospitalId || null;
+  }
+
+  if (user?.role === 'admin') {
+    return hospitalIdParam || authHospitalId || null;
+  }
+
+  return authHospitalId || hospitalIdParam || null;
 };
 
 export const hospitalService = {
@@ -175,7 +187,12 @@ export const hospitalService = {
       profitabilityTrend = [{ month: 'Current', revenue: monthlySales, cost: monthlyPurchases, marginPercent: profitabilityPercent }];
     }
 
+    const allHospitals = getStoredItem(KEYS.HOSPITALS, []);
+    const hospRecord = allHospitals.find((h) => h.id === hospitalId) || null;
+
     return {
+      hospitalId,
+      hospital: hospRecord,
       stats: calculatedStats,
       purchasesMonthly,
       salesMonthly,
@@ -667,6 +684,11 @@ export const hospitalService = {
     const medicines = getStoredItem(KEYS.MEDICINES, []);
     const index = medicines.findIndex((m) => m.id === id);
     if (index === -1) throw new Error('Medicine not found');
+    const authHospitalId = resolveHospitalId();
+    const session = getStoredItem(KEYS.AUTH, null);
+    if (session?.user?.role === 'hospital' && medicines[index].hospitalId !== authHospitalId) {
+      throw new Error('Unauthorized: You can only update medicines in your own hospital inventory');
+    }
     assertHospitalActive(medicines[index].hospitalId);
 
     // Guard: Disposed medicine cannot be edited or reactivated
@@ -884,6 +906,11 @@ export const hospitalService = {
     const medicines = getStoredItem(KEYS.MEDICINES, []);
     const medicine = medicines.find((m) => m.id === id);
     if (!medicine) throw new Error('Medicine not found');
+    const authHospitalId = resolveHospitalId();
+    const session = getStoredItem(KEYS.AUTH, null);
+    if (session?.user?.role === 'hospital' && medicine.hospitalId !== authHospitalId) {
+      throw new Error('Unauthorized: You can only delete medicines from your own hospital inventory');
+    }
     assertHospitalActive(medicine.hospitalId);
 
     const filtered = medicines.filter((m) => m.id !== id);
@@ -1684,15 +1711,15 @@ export const hospitalService = {
   // ==========================================
   // 5. DEMO PAYMENT SIMULATOR & ESCROW RELEASE
   // ==========================================
-  async processPayment({ requestId, paymentMethod = 'Demo B2B Escrow Transfer' }) {
-    await new Promise((r) => setTimeout(r, 600));
+  async processPayment({ requestId, paymentMethod = 'Razorpay Escrow Transfer', verification = null }) {
+    await new Promise((r) => setTimeout(r, 400));
 
-    // 1. Attempt authoritative backend payment flow if authenticated
+    // 1. Authoritative backend payment flow
     const session = getStoredItem(KEYS.AUTH, null);
     const token = session?.token;
-    let backendPayment = null;
+    let backendPayment = verification?.payment || null;
 
-    if (token) {
+    if (!backendPayment && token) {
       try {
         const createRes = await fetch(`${API_BASE_URL}/payments/create`, {
           method: 'POST',
@@ -2210,7 +2237,7 @@ export const hospitalService = {
     await new Promise((r) => setTimeout(r, 150));
     const hospitalId = resolveHospitalId(hospitalIdParam);
     const payments = getStoredItem(KEYS.PAYMENTS, []);
-    if (!hospitalId) return payments;
+    if (!hospitalId) return [];
 
     const hospitals = getStoredItem(KEYS.HOSPITALS, []);
     const hosp = hospitals.find((h) => h.id === hospitalId);

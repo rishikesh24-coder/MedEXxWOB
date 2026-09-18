@@ -89,8 +89,13 @@ export const alertService = {
    * @param {string} hospitalId 
    * @returns {Promise<Array>|Array} List of active, non-dismissed alerts
    */
-  async getHospitalAlerts(hospitalId) {
-    if (!hospitalId) return cachedHospitalAlerts;
+  async getHospitalAlerts(hospitalIdParam) {
+    const session = getStoredItem(KEYS.AUTH, null);
+    const userRole = session?.user?.role;
+    const authHospitalId = session?.user?.hospitalId || session?.user?.id;
+    // Strict Tenant Isolation: hospital accounts can ONLY retrieve their own alerts
+    const hospitalId = userRole === 'hospital' ? authHospitalId : (hospitalIdParam || authHospitalId);
+    if (!hospitalId) return [];
 
     // 1. Try Authoritative Backend API
     try {
@@ -119,17 +124,21 @@ export const alertService = {
   /**
    * Generates local hospital alerts from storage (Offline / Dev Fallback)
    */
-  generateLocalHospitalAlerts(hospitalId) {
+  generateLocalHospitalAlerts(hospitalIdParam) {
+    const session = getStoredItem(KEYS.AUTH, null);
+    const userRole = session?.user?.role;
+    const authHospitalId = session?.user?.hospitalId || session?.user?.id;
+    const hospitalId = userRole === 'hospital' ? authHospitalId : (hospitalIdParam || authHospitalId);
     if (!hospitalId) return [];
 
     const storedAlertMeta = getStoredItem(KEYS.ALERTS, {});
     const rawMedicines = getStoredItem(KEYS.MEDICINES, []);
-    const medicines = rawMedicines.filter((m) => m.hospitalId === hospitalId || !m.hospitalId);
+    const medicines = rawMedicines.filter((m) => m.hospitalId === hospitalId);
     const requests = getStoredItem(KEYS.REQUESTS, []);
-    const incomingRequests = requests.filter((r) => r.toHospitalId === hospitalId || !r.toHospitalId);
+    const incomingRequests = requests.filter((r) => r.toHospitalId === hospitalId);
     const outgoingRequests = requests.filter((r) => r.fromHospitalId === hospitalId);
     const trackingList = getStoredItem(KEYS.TRACKING, []).filter(
-      (t) => t.senderHospitalId === hospitalId || t.receiverHospitalId === hospitalId || t.senderHospital?.includes(hospitalId) || t.receiverHospital?.includes(hospitalId)
+      (t) => t.senderHospitalId === hospitalId || t.receiverHospitalId === hospitalId
     );
 
     const generatedAlerts = [];

@@ -143,10 +143,26 @@ export const TrackPage = () => {
 
   const storedTrackings = getStoredItem(KEYS.TRACKING, []);
 
-  // Standard active shipments list
+  // Standard active shipments list scoped to authenticated hospital
   const availableShipments = useMemo(() => {
+    const hospitalId = user?.hospitalId || user?.id;
+    const hospitalName = user?.name?.toLowerCase();
+
+    const isHospitalRelated = (t) => {
+      if (!hospitalId && !hospitalName) return false;
+      if (t.senderHospitalId === hospitalId || t.receiverHospitalId === hospitalId) return true;
+      if (t.fromHospitalId === hospitalId || t.toHospitalId === hospitalId) return true;
+      if (hospitalName) {
+        if (t.senderHospital?.toLowerCase().includes(hospitalName)) return true;
+        if (t.receiverHospital?.toLowerCase().includes(hospitalName)) return true;
+        if (t.from?.toLowerCase().includes(hospitalName)) return true;
+        if (t.to?.toLowerCase().includes(hospitalName)) return true;
+      }
+      return false;
+    };
+
     if (storedTrackings.length > 0) {
-      return storedTrackings.map((t) => ({
+      return storedTrackings.filter(isHospitalRelated).map((t) => ({
         txnId: t.transactionId,
         trackingNo: t.trackingNumber,
         medicine: t.medicineName,
@@ -158,53 +174,8 @@ export const TrackPage = () => {
         eta: t.eta || 'Today, 06:30 PM',
       }));
     }
-    return [
-      {
-        txnId: 'TXN-773120',
-        trackingNo: 'SMS-EXP-88912',
-        medicine: 'Enoxaparin Sodium 40mg',
-        units: 50,
-        from: 'Max Super Speciality (Delhi)',
-        to: 'Apollo Hospital (Mumbai)',
-        status: 'In Transit',
-        temp: '4.2°C',
-        eta: 'Today, 06:30 PM',
-      },
-      {
-        txnId: 'TXN-770412',
-        trackingNo: 'SMS-EXP-77041',
-        medicine: 'Rituximab (Ristova) 500mg',
-        units: 4,
-        from: 'Tata Memorial Centre (Mumbai)',
-        to: 'Apollo Hospital (Mumbai)',
-        status: 'In Transit',
-        temp: '3.8°C',
-        eta: 'Today, 04:15 PM',
-      },
-      {
-        txnId: 'TXN-663190',
-        trackingNo: 'SMS-EXP-66319',
-        medicine: 'Streptokinase 1,500,000 IU',
-        units: 12,
-        from: 'Lilavati Hospital (Mumbai)',
-        to: 'Apollo Hospital (Pune)',
-        status: 'In Transit',
-        temp: '4.5°C',
-        eta: 'Today, 05:00 PM',
-      },
-      {
-        txnId: 'TXN-331902',
-        trackingNo: 'SMS-EXP-33190',
-        medicine: 'Bevacizumab (Avastin) 400mg',
-        units: 3,
-        from: 'Tata Memorial Centre (Mumbai)',
-        to: 'Fortis Memorial (Gurgaon)',
-        status: 'Delivered',
-        temp: '4.0°C',
-        eta: 'Delivered',
-      },
-    ];
-  }, [storedTrackings]);
+    return [];
+  }, [storedTrackings, user]);
 
   // Active tracking item with standard fallback
   const tracking = currentTracking || {

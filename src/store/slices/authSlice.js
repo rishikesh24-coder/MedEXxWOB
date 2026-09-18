@@ -57,8 +57,13 @@ export const logoutUser = createAsyncThunk('auth/logout', async () => {
   return null;
 });
 
-export const switchHospitalAction = createAsyncThunk('auth/switchHospital', async (hospitalId, { rejectWithValue }) => {
+export const switchHospitalAction = createAsyncThunk('auth/switchHospital', async (hospitalId, { getState, rejectWithValue }) => {
   try {
+    const state = getState();
+    const currentUser = state.auth?.user;
+    if (currentUser?.role !== 'admin') {
+      return rejectWithValue('Forbidden: Hospital accounts cannot switch active hospital identity.');
+    }
     const data = await authService.switchHospital(hospitalId);
     return data;
   } catch (err) {
@@ -89,12 +94,14 @@ const authSlice = createSlice({
     }
   },
   extraReducers: (builder) => {
-    // Switch hospital
+    // Switch hospital (strictly restricted to admin supervisory role)
     builder.addCase(switchHospitalAction.fulfilled, (state, action) => {
-      state.user = action.payload.user;
-      state.token = action.payload.token;
-      state.role = 'hospital';
-      state.isAuthenticated = true;
+      if (state.role === 'admin' || state.user?.role === 'admin') {
+        state.user = action.payload.user;
+        state.token = action.payload.token;
+        state.role = 'admin';
+        state.isAuthenticated = true;
+      }
     });
     // Login
     builder.addCase(loginUser.pending, (state) => {

@@ -245,7 +245,7 @@ function PriorityBadge({ priority }) {
 
 export default function IncomingRequests() {
   const { user } = useSelector((state) => state.auth);
-  const currentHospitalId = user?.hospitalId || user?.id || 'hosp-1';
+  const currentHospitalId = user?.hospitalId || user?.id;
 
   // Alert Deep-Link & Pulse Highlighting
   const [searchParams, setSearchParams] = useSearchParams();
@@ -253,6 +253,7 @@ export default function IncomingRequests() {
   const navigate = useNavigate();
 
   const loadRequests = () => {
+    if (!currentHospitalId) return [];
     try {
       const storedReqs = getStoredItem(KEYS.REQUESTS, []);
       if (Array.isArray(storedReqs) && storedReqs.length > 0) {
@@ -261,22 +262,15 @@ export default function IncomingRequests() {
         const hospMap = Object.fromEntries(hospitals.map((h) => [h.id, h]));
         const medMap = Object.fromEntries(medicines.map((m) => [m.id, m]));
 
-        const targetId = searchParams.get('requestId') || searchParams.get('orderId') || searchParams.get('reqId') || searchParams.get('transactionId') || location.state?.alertTarget?.requestId || location.state?.alertTarget?.orderId;
+        // Strict Tenant Isolation: only return incoming requests directed specifically to this hospital
+        const relevant = storedReqs.filter((r) => r.toHospitalId === currentHospitalId);
 
-        const relevant = storedReqs.filter((r) => 
-          r.toHospitalId === currentHospitalId || 
-          (targetId && (r.id === targetId || r.transactionId === targetId || r.orderId === targetId)) ||
-          !r.toHospitalId
-        );
-
-        if (relevant.length > 0) {
-          return relevant.map((r) => normalizeIncomingRequest(r, hospMap, medMap));
-        }
+        return relevant.map((r) => normalizeIncomingRequest(r, hospMap, medMap));
       }
     } catch (e) {
       console.warn("Failed loading stored requests", e);
     }
-    return INITIAL_REQUESTS;
+    return [];
   };
 
   const [requests, setRequests] = useState(loadRequests);

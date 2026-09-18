@@ -41,7 +41,7 @@ const environment = {
   },
 
   payment: {
-    provider: (process.env.PAYMENT_PROVIDER || 'mock').toLowerCase(),
+    provider: (process.env.PAYMENT_PROVIDER || (process.env.RAZORPAY_KEY_ID ? 'razorpay' : 'mock')).toLowerCase(),
     keyId: process.env.PAYMENT_PROVIDER_KEY || process.env.RAZORPAY_KEY_ID || '',
     keySecret: process.env.PAYMENT_PROVIDER_SECRET || process.env.RAZORPAY_KEY_SECRET || '',
     webhookSecret: process.env.PAYMENT_WEBHOOK_SECRET || process.env.RAZORPAY_WEBHOOK_SECRET || '',

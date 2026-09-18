@@ -20,7 +20,7 @@ import {
   Clock,
   ArrowRight
 } from 'lucide-react';
-import { logoutUser, setUserSession, switchHospitalAction } from '../../store/slices/authSlice';
+import { logoutUser, setUserSession } from '../../store/slices/authSlice';
 import { getStoredItem, setStoredItem, KEYS } from '../../services/storage';
 import { alertService } from '../../services/alertService';
 import toast from 'react-hot-toast';
@@ -94,10 +94,6 @@ export const Navbar = () => {
     navigate('/');
   };
 
-  const handleSwitchHospital = (hospitalId) => {
-    dispatch(switchHospitalAction(hospitalId));
-    setUserDropdownOpen(false);
-  };
 
   const openEditProfile = () => {
     setEditFormData({
@@ -348,7 +344,9 @@ export const Navbar = () => {
                     onMouseLeave={() => setUserDropdownOpen(false)}
                   >
                     <div className="px-4 py-2.5 border-b border-slate-100">
-                      <p className="text-[10px] font-mono text-slate-400 uppercase tracking-wider">Active Workspace</p>
+                      <p className="text-[10px] font-mono text-slate-400 uppercase tracking-wider">
+                        {role === 'hospital' ? 'ACTIVE HOSPITAL' : 'Active Workspace'}
+                      </p>
                       <p className="text-xs font-extrabold text-slate-900 mt-0.5">{user?.name || 'Apollo Hospital'}</p>
                       <p className="text-[10px] text-slate-500 truncate">{user?.email}</p>
                       {role === 'hospital' && (
@@ -405,35 +403,6 @@ export const Navbar = () => {
                         </>
                       )}
                     </div>
-
-                    {/* Quick Hospital Switcher for Multi-Hospital Testing */}
-                    {role === 'hospital' && (
-                      <div className="px-4 py-2 border-t border-slate-100 bg-slate-50/60">
-                        <p className="text-[10px] font-mono text-slate-400 uppercase font-bold mb-1.5">
-                          Switch Active Hospital
-                        </p>
-                        <div className="space-y-1 max-h-36 overflow-y-auto text-[11px]">
-                          {getStoredItem(KEYS.HOSPITALS, []).map((h) => {
-                            const isCurrent = h.id === user?.id;
-                            return (
-                              <button
-                                key={h.id}
-                                type="button"
-                                onClick={() => handleSwitchHospital(h.id)}
-                                className={`w-full px-2 py-1 rounded border text-left font-medium truncate flex items-center justify-between ${
-                                  isCurrent
-                                    ? 'bg-primary-50 border-primary-300 text-primary-900 font-bold'
-                                    : 'bg-white border-slate-200 hover:border-primary-400 text-slate-700'
-                                }`}
-                              >
-                                <span className="truncate">🏥 {h.name}</span>
-                                {isCurrent && <span className="text-[9px] text-primary-600 font-mono">ACTIVE</span>}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
 
                     <div className="border-t border-slate-100 pt-1">
                       <button

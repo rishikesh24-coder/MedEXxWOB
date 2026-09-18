@@ -361,6 +361,11 @@ export const authService = {
   },
 
   async switchHospital(hospitalId) {
+    const session = this.validateSession();
+    if (session?.user?.role !== 'admin') {
+      throw new Error('Forbidden: Hospital users cannot switch tenant identity. Multi-hospital switching is restricted to administrators.');
+    }
+
     const hospitals = getStoredItem(KEYS.HOSPITALS, []);
     const matched = hospitals.find((h) => h.id === hospitalId) || hospitals[0];
     if (!matched) throw new Error('Hospital not found');

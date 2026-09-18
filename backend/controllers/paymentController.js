@@ -221,6 +221,24 @@ const paymentController = {
     } catch (err) {
       next(err);
     }
+  },
+
+  /**
+   * GET /api/payments/config
+   * Public/client-safe gateway configuration (keyId, provider, currency)
+   */
+  async getConfig(req, res, next) {
+    try {
+      const env = require('../config/environment');
+      return successResponse(res, {
+        provider: env.payment.provider,
+        keyId: env.payment.keyId || null,
+        isConfigured: env.payment.isConfigured,
+        currency: 'INR',
+      }, 'Payment configuration retrieved');
+    } catch (err) {
+      next(err);
+    }
   }
 };
 
