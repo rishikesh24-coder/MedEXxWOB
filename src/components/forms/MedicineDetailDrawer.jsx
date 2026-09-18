@@ -26,6 +26,7 @@ import PurchaseInvoiceViewer from '../hospital/PurchaseInvoiceViewer';
 import { calculateOrderPricing } from '../../utils/pricingUtils';
 import { findAlternatives, extractMedicineComposition, CLINICAL_SAFETY_DISCLAIMER } from '../../services/medicineAlternativeService';
 import { validateRequisition } from '../../utils/validation';
+import { getExpiryPricing, isExpiryAcceptable } from '../../config/nearExpiryPolicy';
 import toast from 'react-hot-toast';
 
 // ============================================================
@@ -218,7 +219,11 @@ export const MedicineDetailDrawer = ({
 
   if (!isOpen || !activeMed) return null;
 
-  const concession = activeMed.concessionPercent || 0;
+  const policyPricing = useMemo(() => {
+    return getExpiryPricing(activeMed?.expiryDate, activeMed?.unitOriginalPrice);
+  }, [activeMed?.expiryDate, activeMed?.unitOriginalPrice]);
+
+  const concession = policyPricing.concessionPercent;
   const finalUnitPrice = pricing.unitFinalPrice;
   const totalAmount = pricing.totalPayable;
   const isColdChain = String(activeMed.storageType || '').toLowerCase().includes('cold');
@@ -226,6 +231,11 @@ export const MedicineDetailDrawer = ({
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!activeMed) return;
+
+    if (!isExpiryAcceptable(activeMed.expiryDate)) {
+      toast.error('Stock cannot be accepted or requested because the medicine expires within 1 month.');
+      return;
+    }
 
     if (activeMed.quantity <= 0) {
       toast.error('This medicine batch is currently out of stock.');

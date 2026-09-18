@@ -36,6 +36,7 @@ import {
   downloadSampleCsvFile
 } from '../../utils/csvParser';
 import { calculateMedicineExpiry } from '../../utils/expiryUtils';
+import { isExpiryAcceptable, getExpiryPricing, getRemainingShelfLife } from '../../config/nearExpiryPolicy';
 import { importHospitalInventory, fetchInventory } from '../../store/slices/hospitalSlice';
 import toast from 'react-hot-toast';
 
@@ -320,21 +321,25 @@ export const CSVImportModal = ({ isOpen, onClose, onImportSuccess }) => {
         }
       }
 
-      // 7. Pricing
+      // 7. Pricing strictly derived via central Near-Expiry Concession Policy
       const unitOriginalPrice = normalizePrice(rawPrice) || 60;
-      const concessionPercent = Math.max(0, Math.min(90, normalizePrice(rawConcession) || 10));
+      const policyPricing = expiryDate ? getExpiryPricing(expiryDate, unitOriginalPrice) : null;
+      const concessionPercent = policyPricing?.acceptable ? policyPricing.concessionPercent : 0;
       const minStockThreshold = normalizeQuantity(rawMinStock) || 25;
 
-      // 8. Expiry status & calculations using centralized utility
+      // 8. Expiry status & calculations using centralized near-expiry policy
       let expiryMeta = { isExpired: false, isNearExpiry: false, isLowStock: false, status: 'healthy', label: 'ACTIVE' };
       if (expiryDate) {
         expiryMeta = calculateMedicineExpiry(expiryDate, mfgDate, qty, minStockThreshold);
         if (expiryMeta.isExpired) {
           expiredCount++;
-          warnings.push('Medicine is expired (statutory quarantine - excluded from exchange)');
-        } else if (expiryMeta.isNearExpiry) {
+          errors.push('Stock cannot be accepted because the medicine is expired.');
+        } else if (!isExpiryAcceptable(expiryDate)) {
+          expiredCount++;
+          errors.push('Stock cannot be accepted because the medicine expires within 1 month.');
+        } else if (policyPricing && policyPricing.concessionPercent > 0) {
           nearExpiryCount++;
-          warnings.push(`Near expiry (${expiryMeta.daysRemaining} days remaining)`);
+          warnings.push(`Near-expiry concession applied: ${policyPricing.concessionPercent}% (${policyPricing.remainingShelfLife.formatted})`);
         }
       }
 

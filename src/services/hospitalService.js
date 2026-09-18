@@ -1,7 +1,8 @@
-import { getStoredItem, setStoredItem, KEYS, isHospitalSuspended } from './storage.js';
+import { getStoredItem, setStoredItem, KEYS, isHospitalSuspended, saveSaleListing, getSaleListings as getStoredSaleListings, updateSaleListing as updateStoredSaleListing } from './storage.js';
 import { HOSPITAL_ANALYTICS } from './mockData.js';
 import { calculateMedicineExpiry, calculateRequestExpiry, processExpiredRequests } from '../utils/expiryUtils.js';
 import { calculateOrderPricing } from '../utils/pricingUtils.js';
+import { isExpiryAcceptable, getExpiryPricing, getConcessionPercent } from '../config/nearExpiryPolicy.js';
 import { auditService } from './auditService.js';
 import { findAlternatives } from './medicineAlternativeService.js';
 import { getCancellationPolicy, calculateRefundAmounts } from '../utils/cancellationPolicy.js';
@@ -372,11 +373,14 @@ export const hospitalService = {
     if (!Number.isFinite(qty) || qty <= 0) throw new Error('Inventory quantity must be greater than zero');
     if (!Number.isFinite(unitPrice) || unitPrice < 0) throw new Error('Unit price cannot be negative');
 
-    // Date consistency & expiration guards
+    // Date consistency & near-expiry policy acceptance guards
     if (medicineData.expiryDate) {
+      if (!isExpiryAcceptable(medicineData.expiryDate)) {
+        throw new Error('Stock cannot be accepted because the medicine expires within 1 month.');
+      }
       const exp = calculateMedicineExpiry(medicineData.expiryDate, qty);
       if (exp.isExpired) {
-        throw new Error('Cannot add expired medicine to active inventory. Expired medicines must be quarantined.');
+        throw new Error('Stock cannot be accepted because the medicine is expired.');
       }
     }
     if (medicineData.mfgDate && medicineData.expiryDate) {
@@ -422,7 +426,9 @@ export const hospitalService = {
     });
 
     const mrpRate = Number(medicineData.mrp || unitPrice || 100);
-    const concRate = Number(medicineData.concessionRate || Math.round(mrpRate * (1 - (medicineData.concessionPercent || 0) / 100)));
+    const policyPricing = getExpiryPricing(medicineData.expiryDate, mrpRate);
+    const concRate = policyPricing.sellingPricePerUnit;
+    const concPercent = policyPricing.concessionPercent;
     const acqCost = Number(medicineData.costRate || medicineData.acquisitionCost || Math.round(mrpRate * 0.85));
     const reorder = Number(medicineData.reorderLevel || medicineData.minStockLevel || medicineData.minimumStockLevel || 20);
 
@@ -462,9 +468,8 @@ export const hospitalService = {
         existing.reorderLevel = reorder;
         existing.minStockLevel = reorder;
       }
-      if (medicineData.concessionPercent !== undefined) {
-        existing.concessionPercent = Math.max(0, Math.min(90, Number(medicineData.concessionPercent)));
-      }
+      existing.concessionPercent = concPercent;
+      existing.concessionRate = concRate;
       if (medicineData.notes) {
         existing.notes = existing.notes
           ? `${existing.notes} | Stock increment: +${qty} units`
@@ -572,7 +577,7 @@ export const hospitalService = {
       supplier: medicineData.supplier || 'Hospital Direct Procurement',
       purchaseDate: medicineData.purchaseDate || new Date().toISOString().split('T')[0],
       source: 'Purchase',
-      concessionPercent: Math.max(0, Math.min(90, Number(medicineData.concessionPercent || 0))),
+      concessionPercent: concPercent,
       dateAdded: new Date().toISOString().split('T')[0],
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -684,11 +689,17 @@ export const hospitalService = {
       }
     }
 
+    if (expDate && !isExpiryAcceptable(expDate)) {
+      throw new Error('Stock cannot be accepted because the medicine expires within 1 month.');
+    }
+
     const prevTotal = Number(medicines[index].quantity || medicines[index].totalQuantity || 0);
     const reserved = Number(medicines[index].reservedQuantity || 0);
     const newTotal = updatedQty;
     const newAvailable = Math.max(0, newTotal - reserved);
     const reorderVal = updatedData.reorderLevel !== undefined ? Number(updatedData.reorderLevel) : (medicines[index].reorderLevel || medicines[index].minStockLevel || 20);
+
+    const policyPricing = getExpiryPricing(expDate, updatedPrice);
 
     medicines[index] = {
       ...medicines[index],
@@ -706,15 +717,15 @@ export const hospitalService = {
       medicineCode: updatedData.medicineCode || medicines[index].medicineCode || ('MED-' + (id.slice(-4))),
       unitOriginalPrice: updatedPrice,
       mrp: Number(updatedData.mrp || updatedPrice),
-      concessionRate: Number(updatedData.concessionRate || medicines[index].concessionRate || Math.round(updatedPrice * (1 - (updatedData.concessionPercent ?? medicines[index].concessionPercent ?? 0) / 100))),
-      unitFinalPrice: Number(updatedData.concessionRate || medicines[index].concessionRate || Math.round(updatedPrice * (1 - (updatedData.concessionPercent ?? medicines[index].concessionPercent ?? 0) / 100))),
+      concessionRate: policyPricing.sellingPricePerUnit,
+      unitFinalPrice: policyPricing.sellingPricePerUnit,
       costRate: Number(updatedData.costRate || medicines[index].costRate || Math.round(updatedPrice * 0.85)),
       acquisitionCost: Number(updatedData.acquisitionCost || updatedData.costRate || medicines[index].acquisitionCost || Math.round(updatedPrice * 0.85)),
       shelfLocation: updatedData.shelfLocation || medicines[index].shelfLocation || 'Rack A - Shelf 3',
       unit: updatedData.unit || medicines[index].unit || 'Tablet',
       reorderLevel: reorderVal,
       minStockLevel: reorderVal,
-      concessionPercent: Math.max(0, Math.min(90, Number(updatedData.concessionPercent ?? medicines[index].concessionPercent ?? 0))),
+      concessionPercent: policyPricing.concessionPercent,
     };
 
     setStoredItem(KEYS.MEDICINES, medicines);
@@ -985,6 +996,13 @@ export const hospitalService = {
     itemsToCreate.forEach((item, index) => {
       const qty = Math.max(1, Number(item.quantity) || 1);
       const unitPrice = Math.max(0, Number(item.unitOriginalPrice) || 50);
+      
+      // Enforce hard near-expiry rejection rule
+      if (!isExpiryAcceptable(item.expiryDate)) {
+        return; // Do not import batches with <= 1 month shelf life or expired
+      }
+
+      const policyPricing = getExpiryPricing(item.expiryDate, unitPrice);
       const exp = calculateMedicineExpiry(item.expiryDate, qty);
 
       const newMedicine = {
@@ -1000,7 +1018,10 @@ export const hospitalService = {
         manufacturer: item.manufacturer || 'Standard Pharma Corp',
         quantity: qty,
         unitOriginalPrice: unitPrice,
-        concessionPercent: Math.max(0, Math.min(90, Number(item.concessionPercent || 0))),
+        mrp: unitPrice,
+        concessionPercent: policyPricing.concessionPercent,
+        concessionRate: policyPricing.sellingPricePerUnit,
+        unitFinalPrice: policyPricing.sellingPricePerUnit,
         hospitalId: hospitalId,
         hospitalName: hosp.name,
         location: hosp.city && hosp.state ? `${hosp.city}, ${hosp.state}` : 'Hospital Pharmacy',
@@ -1009,7 +1030,7 @@ export const hospitalService = {
         status: exp.isExpired ? 'expired' : 'active',
         minStockThreshold: Number(item.minStockThreshold) || 25,
         unit: item.unit || 'Units',
-        notes: item.notes || (exp.isExpired ? 'Imported expired batch. Quarantined from exchange.' : 'Imported via Hospital CSV system.'),
+        notes: item.notes || 'Imported via Hospital CSV system.',
       };
 
       medicines.unshift(newMedicine);
@@ -1086,7 +1107,8 @@ export const hospitalService = {
       if (Number(m.quantity) <= 0) return false;
       if (m.status === 'pending_disposal' || m.status === 'disposed') return false;
 
-      // Expired medicines must never appear in marketplace
+      // Policy Hard Acceptance Rule: Expired or <= 1 month medicines must NEVER appear in marketplace
+      if (!isExpiryAcceptable(m.expiryDate)) return false;
       const exp = calculateMedicineExpiry(m.expiryDate);
       if (exp.isExpired) return false;
 
@@ -1199,7 +1221,10 @@ export const hospitalService = {
       throw new Error(`Requested quantity (${qty}) exceeds available stock (${targetMed.quantity})`);
     }
 
-    // Check expiry
+    // Check expiry under policy
+    if (!isExpiryAcceptable(targetMed.expiryDate)) {
+      throw new Error('Stock cannot be requested because the medicine expires within 1 month.');
+    }
     const exp = calculateMedicineExpiry(targetMed.expiryDate);
     if (exp.isExpired) throw new Error('Cannot request an expired medicine');
 
@@ -2535,5 +2560,237 @@ export const hospitalService = {
     a.click();
     a.remove();
     window.URL.revokeObjectURL(downloadUrl);
+  },
+
+  // ==========================================
+  // 14. SELL MEDICINES & LISTINGS MANAGEMENT
+  // ==========================================
+  async createSaleListing(listingInput) {
+    await new Promise((r) => setTimeout(r, 200));
+
+    const hospitalId = resolveHospitalId(listingInput.sellerHospitalId || listingInput.hospitalId);
+    if (!hospitalId) {
+      throw new Error('Seller hospital identity could not be verified');
+    }
+    assertHospitalActive(hospitalId);
+
+    const qty = Math.floor(Number(listingInput.quantity));
+    if (!Number.isFinite(qty) || qty <= 0) {
+      throw new Error('Listing quantity must be a positive whole number');
+    }
+
+    const mrp = Number(listingInput.mrp || listingInput.unitOriginalPrice);
+    if (!Number.isFinite(mrp) || mrp <= 0) {
+      throw new Error('Valid batch MRP is required');
+    }
+
+    // Verify batch from seller hospital's existing inventory
+    const medicines = getStoredItem(KEYS.MEDICINES, []);
+    const batchIndex = medicines.findIndex((m) => {
+      if (m.hospitalId !== hospitalId) return false;
+      if (listingInput.batchId && m.id === listingInput.batchId) return true;
+      const mBatch = (m.batchNo || m.batchNumber || '').trim().toLowerCase();
+      const inBatch = (listingInput.batchNo || listingInput.batchNumber || '').trim().toLowerCase();
+      const mName = (m.brandName || m.medicineName || '').trim().toLowerCase();
+      const inName = (listingInput.brandName || listingInput.medicineName || '').trim().toLowerCase();
+      return mBatch === inBatch && (mName === inName || m.id === listingInput.medicineId);
+    });
+
+    if (batchIndex === -1) {
+      throw new Error('Selected batch not found in your hospital inventory');
+    }
+
+    const targetBatch = medicines[batchIndex];
+    const targetExpiry = targetBatch.expiryDate || listingInput.expiryDate;
+
+    // Hard Near-Expiry Policy Rejection Rule (<= 1 month cannot be listed)
+    if (!isExpiryAcceptable(targetExpiry)) {
+      throw new Error('Stock cannot be listed because the medicine expires within 1 month.');
+    }
+
+    const exp = calculateMedicineExpiry(targetExpiry);
+    if (exp.isExpired) {
+      throw new Error('Cannot list an expired medicine lot. Expired medicines must be quarantined.');
+    }
+
+    // Strictly derive pricing from the central Near-Expiry Concession Policy (No manual override)
+    const policyPricing = getExpiryPricing(targetExpiry, mrp, null, qty);
+    const concessionPercent = policyPricing.concessionPercent;
+    const concessionAmountPerUnit = policyPricing.concessionAmountPerUnit;
+    const sellingPricePerUnit = policyPricing.sellingPricePerUnit;
+    const totalMRP = policyPricing.totalMRP;
+    const totalConcession = policyPricing.totalConcession;
+    const finalSellingPrice = policyPricing.finalSellingPrice;
+
+    const totalBatchStock = Number(targetBatch.quantity || targetBatch.totalQuantity || 0);
+    const existingReserved = Number(targetBatch.reservedQuantity || 0);
+    const currentAvailable = targetBatch.availableQuantity !== undefined
+      ? Number(targetBatch.availableQuantity)
+      : Math.max(0, totalBatchStock - existingReserved);
+
+    if (qty > currentAvailable) {
+      throw new Error(`Listing quantity (${qty}) cannot exceed available batch stock (${currentAvailable})`);
+    }
+
+    // Resolve hospital details
+    const hospitals = getStoredItem(KEYS.HOSPITALS, []);
+    const hosp = hospitals.find((h) => h.id === hospitalId) || {
+      id: hospitalId,
+      name: listingInput.sellerHospitalName || targetBatch.hospitalName || 'Hospital Partner',
+      location: targetBatch.location || 'Mumbai, Maharashtra',
+    };
+
+    const listingId = `sale-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+    const timestamp = new Date().toISOString();
+
+    const saleRecord = {
+      id: listingId,
+      listingId,
+      // Seller hospital
+      hospitalId: hosp.id,
+      sellerHospitalId: hosp.id,
+      sellerHospitalName: hosp.name,
+      sellerHospitalLocation: hosp.location || targetBatch.location || 'India',
+      sellerLocation: hosp.location || targetBatch.location || 'India',
+      // Medicine details
+      medicineId: targetBatch.medicineId || targetBatch.id,
+      batchId: targetBatch.id,
+      brandName: targetBatch.brandName || targetBatch.medicineName,
+      medicineName: targetBatch.brandName || targetBatch.medicineName,
+      genericName: targetBatch.genericName || targetBatch.composition || 'Active Pharmaceutical Ingredient',
+      power: targetBatch.power || targetBatch.strength || targetBatch.dosage || 'Standard',
+      dosageForm: targetBatch.dosageForm || targetBatch.form || 'Tablet',
+      category: targetBatch.category || 'Pharmaceutical',
+      storageType: targetBatch.storageType || targetBatch.storageCondition || 'Room Temperature (15°C - 25°C)',
+      shelfLocation: targetBatch.shelfLocation || 'Main Pharmacy Rack',
+      // Batch & Expiry
+      batchNo: targetBatch.batchNo || targetBatch.batchNumber || listingInput.batchNo,
+      batchNumber: targetBatch.batchNo || targetBatch.batchNumber || listingInput.batchNo,
+      mfgDate: targetBatch.mfgDate || listingInput.mfgDate || '2024-01-01',
+      expiryDate: targetBatch.expiryDate || listingInput.expiryDate,
+      // Quantity
+      quantity: qty,
+      initialQuantity: qty,
+      availableQuantity: qty,
+      // Pricing
+      mrp,
+      unitOriginalPrice: mrp,
+      concessionPercent,
+      concessionPercentage: concessionPercent,
+      concessionAmount: concessionAmountPerUnit,
+      concessionAmountPerUnit,
+      sellingPrice: sellingPricePerUnit,
+      sellingPricePerUnit,
+      unitFinalPrice: sellingPricePerUnit,
+      totalMRP,
+      totalConcession,
+      finalSellingPrice,
+      totalSellingPrice: finalSellingPrice,
+      // Status & Timestamps
+      listingStatus: 'active',
+      status: 'active',
+      timestamp,
+      createdAt: timestamp,
+      notes: listingInput.notes || `Listed for inter-hospital exchange with ${concessionPercent}% concession`
+    };
+
+    // 1. Persist sale listing in localStorage
+    saveSaleListing(saleRecord);
+
+    // 2. Reduce/reserve inventory according to the existing frontend inventory model
+    const newReserved = existingReserved + qty;
+    const newAvailable = Math.max(0, totalBatchStock - newReserved);
+    medicines[batchIndex] = {
+      ...targetBatch,
+      reservedQuantity: newReserved,
+      availableQuantity: newAvailable,
+      concessionPercent: concessionPercent,
+      concessionRate: sellingPricePerUnit,
+      unitFinalPrice: sellingPricePerUnit,
+      lastUpdated: timestamp,
+    };
+    setStoredItem(KEYS.MEDICINES, medicines);
+
+    // 3. Record in Stock History
+    const stockHist = getStoredItem(KEYS.STOCK_HISTORY, []);
+    stockHist.unshift({
+      id: `sh-sale-${Date.now()}`,
+      medicineId: targetBatch.id,
+      medicineName: targetBatch.brandName || targetBatch.medicineName,
+      batchNo: targetBatch.batchNo,
+      hospitalId: hosp.id,
+      hospitalName: hosp.name,
+      action: 'Listed for Marketplace Sale',
+      actionType: 'Stock Reservation',
+      movementType: 'Marketplace Allocation',
+      quantityDelta: -qty,
+      previousStock: totalBatchStock,
+      resultingStock: totalBatchStock,
+      availableStock: newAvailable,
+      performedBy: `${hosp.name} Pharmacy Team`,
+      shelfLocation: targetBatch.shelfLocation,
+      reason: `Allocated ${qty} units of batch #${targetBatch.batchNo} to MedEx Marketplace listing #${listingId}`,
+      timestamp,
+      date: timestamp.split('T')[0],
+    });
+    setStoredItem(KEYS.STOCK_HISTORY, stockHist);
+
+    // 4. Audit Log
+    try {
+      auditService.logEvent({
+        action: 'MEDICINE_LISTED_FOR_SALE',
+        entityType: 'MARKETPLACE_LISTING',
+        entityId: listingId,
+        details: {
+          hospitalId: hosp.id,
+          hospitalName: hosp.name,
+          medicine: saleRecord.brandName,
+          batchNo: saleRecord.batchNo,
+          quantity: qty,
+          mrp,
+          concessionPercent,
+          sellingPricePerUnit,
+          finalSellingPrice
+        },
+      });
+    } catch (e) {
+      // ignore
+    }
+
+    return saleRecord;
+  },
+
+  async getSaleListings(hospitalIdParam) {
+    await new Promise((r) => setTimeout(r, 150));
+    const hospitalId = resolveHospitalId(hospitalIdParam);
+    return getStoredSaleListings(hospitalId);
+  },
+
+  async cancelSaleListing(listingId) {
+    await new Promise((r) => setTimeout(r, 150));
+    const listings = getStoredSaleListings();
+    const listing = listings.find((l) => l.id === listingId);
+    if (!listing) throw new Error('Sale listing not found');
+    if (listing.status === 'cancelled') throw new Error('Listing is already cancelled');
+
+    // Unreserve inventory
+    const medicines = getStoredItem(KEYS.MEDICINES, []);
+    const batchIndex = medicines.findIndex((m) => m.id === listing.batchId || (m.hospitalId === listing.hospitalId && m.batchNo === listing.batchNo));
+    if (batchIndex !== -1) {
+      const targetBatch = medicines[batchIndex];
+      const curReserved = Number(targetBatch.reservedQuantity || 0);
+      const newReserved = Math.max(0, curReserved - Number(listing.quantity || 0));
+      const totalStock = Number(targetBatch.quantity || targetBatch.totalQuantity || 0);
+      medicines[batchIndex] = {
+        ...targetBatch,
+        reservedQuantity: newReserved,
+        availableQuantity: Math.max(0, totalStock - newReserved),
+        lastUpdated: new Date().toISOString()
+      };
+      setStoredItem(KEYS.MEDICINES, medicines);
+    }
+
+    const updated = updateStoredSaleListing(listingId, { status: 'cancelled', listingStatus: 'cancelled' });
+    return updated;
   }
 };

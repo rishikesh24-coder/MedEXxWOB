@@ -18,6 +18,7 @@ import {
   Info
 } from 'lucide-react';
 import { findAlternatives, extractMedicineComposition } from '../../services/medicineAlternativeService';
+import { getExpiryPricing, isExpiryAcceptable } from '../../config/nearExpiryPolicy';
 
 /**
  * AlternativeMedicinesModal
@@ -73,9 +74,8 @@ export const AlternativeMedicinesModal = ({
 
   if (!isOpen || !targetMedicine) return null;
 
-  const targetDiscountedPrice = Math.round(
-    targetMedicine.unitOriginalPrice * (1 - (targetMedicine.concessionPercent || 0) / 100) * 100
-  ) / 100;
+  const targetPricing = getExpiryPricing(targetMedicine.expiryDate, targetMedicine.unitOriginalPrice || targetMedicine.mrp);
+  const targetDiscountedPrice = targetPricing.sellingPricePerUnit;
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-3 sm:p-5 animate-fadeIn">
@@ -99,54 +99,25 @@ export const AlternativeMedicinesModal = ({
             </p>
           </div>
 
-          <button
+          <button 
             type="button"
             onClick={onClose}
-            className="p-2 rounded-xl bg-white/10 hover:bg-white/20 text-slate-300 hover:text-white transition-colors flex-shrink-0 z-10"
-            title="Close modal"
+            className="p-2 rounded-2xl bg-white/10 hover:bg-white/20 text-white transition-colors z-10 cursor-pointer"
+            aria-label="Close modal"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* MODAL SCROLLABLE CONTENT */}
-        <div className="p-5 sm:p-6 overflow-y-auto space-y-6 flex-1 bg-slate-50/50">
+        {/* MODAL BODY */}
+        <div className="p-5 sm:p-6 overflow-y-auto space-y-6">
           
-          {/* MANDATORY CLINICAL SAFETY NOTICE */}
-          <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 shadow-sm flex items-start gap-3.5">
-            <div className="p-2 rounded-xl bg-amber-100 text-amber-800 flex-shrink-0 mt-0.5">
-              <ShieldAlert className="w-5 h-5 text-amber-700" />
-            </div>
-            <div className="space-y-1">
-              <div className="flex items-center gap-2">
-                <h4 className="text-xs font-extrabold uppercase tracking-wider text-amber-900">
-                  Mandatory Clinical Verification Notice
-                </h4>
-                <span className="text-[10px] font-mono px-2 py-0.2 rounded bg-amber-200/70 text-amber-900 font-bold">
-                  Rule 65 Compliance
-                </span>
-              </div>
-              <p className="text-xs text-amber-800/90 leading-relaxed font-medium">
-                Composition match does not automatically mean clinical interchangeability. Verify the medicine, dosage form, route, and suitability with an authorized healthcare professional before substitution.
-              </p>
-            </div>
-          </div>
-
-          {/* REQUESTED MEDICINE REFERENCE CARD */}
-          <div className="p-4 sm:p-5 rounded-2xl bg-white border border-slate-200 shadow-sm space-y-3">
-            <div className="flex items-center justify-between text-xs text-slate-500 font-semibold border-b border-slate-100 pb-2">
-              <span className="uppercase tracking-wider font-mono text-[11px] text-slate-400">
-                Requested Reference Medicine
-              </span>
-              <span className="text-primary-700 font-bold">
-                Source: {targetMedicine.hospitalName || 'Marketplace'}
-              </span>
-            </div>
-
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div className="flex items-start gap-3.5">
-                <div className="w-12 h-12 rounded-xl bg-slate-100 border border-slate-200 text-slate-700 flex items-center justify-center flex-shrink-0">
-                  <Pill className="w-6 h-6 rotate-45 text-primary-600" />
+          {/* REFERENCE TARGET MEDICINE CARD */}
+          <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-xl bg-primary-100 text-primary-700 flex items-center justify-center flex-shrink-0 mt-0.5">
+                  <Pill className="w-5 h-5" />
                 </div>
                 <div>
                   <div className="flex items-center gap-2 flex-wrap">
@@ -174,7 +145,7 @@ export const AlternativeMedicinesModal = ({
                   ₹{targetDiscountedPrice} <span className="text-xs font-normal text-slate-500">/ unit</span>
                 </div>
                 <span className="text-[10px] font-mono font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200 inline-block mt-0.5">
-                  {targetMedicine.concessionPercent || 0}% Concession Applied
+                  {targetPricing.concessionPercent}% Concession Applied
                 </span>
               </div>
             </div>
@@ -313,17 +284,22 @@ export const AlternativeMedicinesModal = ({
                       </div>
 
                       {/* Pricing block */}
-                      <div className="text-left sm:text-right flex-shrink-0">
-                        <span className="text-[10px] font-mono text-slate-400 line-through block">
-                          MRP ₹{alt.unitOriginalPrice}
-                        </span>
-                        <div className="text-lg font-extrabold font-mono text-primary-800">
-                          ₹{alt.discountedPrice} <span className="text-xs font-normal text-slate-500">/ unit</span>
-                        </div>
-                        <span className="text-[10px] font-mono font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200 inline-block mt-0.5">
-                          {alt.concessionPercent || 0}% Concession
-                        </span>
-                      </div>
+                      {(() => {
+                        const altPricing = getExpiryPricing(alt.expiryDate, alt.unitOriginalPrice || alt.mrp);
+                        return (
+                          <div className="text-left sm:text-right flex-shrink-0">
+                            <span className="text-[10px] font-mono text-slate-400 line-through block">
+                              MRP ₹{alt.unitOriginalPrice}
+                            </span>
+                            <div className="text-lg font-extrabold font-mono text-primary-800">
+                              ₹{altPricing.sellingPricePerUnit} <span className="text-xs font-normal text-slate-500">/ unit</span>
+                            </div>
+                            <span className="text-[10px] font-mono font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200 inline-block mt-0.5">
+                              {altPricing.concessionPercent}% Concession
+                            </span>
+                          </div>
+                        );
+                      })()}
                     </div>
 
                     {/* Middle Row: Peer Hospital, Specs & Storage */}

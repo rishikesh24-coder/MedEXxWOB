@@ -2,6 +2,7 @@ import { getStoredItem, setStoredItem, KEYS } from './storage.js';
 import { ADMIN_ANALYTICS } from './mockData.js';
 import { auditService } from './auditService.js';
 import { calculateMedicineExpiry } from '../utils/expiryUtils.js';
+import { getExpiryPricing, isExpiryAcceptable } from '../config/nearExpiryPolicy.js';
 
 const assertAdminSession = () => {
   const session = getStoredItem(KEYS.AUTH, null);
@@ -1300,6 +1301,15 @@ export const adminService = {
     if (isNaN(addQty) || addQty <= 0) throw new Error('Quantity must be greater than 0');
     if (!expiryDate) throw new Error('Expiry date is required');
 
+    if (!isExpiryAcceptable(expiryDate)) {
+      throw new Error('Stock cannot be accepted because the medicine expires within 1 month.');
+    }
+
+    const rateMRP = Number(mrp) || Number(unitOriginalPrice) || 100;
+    const policyPricing = getExpiryPricing(expiryDate, rateMRP);
+    const rateConcession = policyPricing.sellingPricePerUnit;
+    const rateCost = Number(costRate || acquisitionCost) || Math.round(rateMRP * 0.85);
+
     const medicines = getStoredItem(KEYS.MEDICINES, []);
     const hospitals = getStoredItem(KEYS.HOSPITALS, []);
     const hosp = hospitals.find((h) => h.id === hospitalId) || { name: 'Hospital Facility', city: 'District' };
@@ -1320,10 +1330,6 @@ export const adminService = {
     let resultItem;
     let isNewRecord = false;
     let prevQuantity = 0;
-
-    const rateMRP = Number(mrp) || Number(unitOriginalPrice) || 100;
-    const rateConcession = Number(concessionRate) || Math.round(rateMRP * 0.95);
-    const rateCost = Number(costRate || acquisitionCost) || Math.round(rateMRP * 0.85);
 
     const uPerPack = Number(unitsPerPack) > 0 ? Number(unitsPerPack) : 15;
     const numPacks = Number(numberOfPacks) > 0 ? Number(numberOfPacks) : Math.max(1, Math.ceil(addQty / uPerPack));

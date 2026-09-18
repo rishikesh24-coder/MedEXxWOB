@@ -11,6 +11,7 @@
 
 import { calculateMedicineExpiry } from '../utils/expiryUtils.js';
 import { API_BASE_URL } from '../config/api.js';
+import { getSellingPrice, isExpiryAcceptable } from '../config/nearExpiryPolicy.js';
 
 // Standard Synonym & Ingredient Normalization Dictionary
 const INGREDIENT_SYNONYMS = {
@@ -356,9 +357,7 @@ export const findAlternatives = (targetMedicine, marketplaceInventory = [], opti
     return empty;
   }
 
-  const targetDiscountedPrice = Math.round(
-    targetMedicine.unitOriginalPrice * (1 - (targetMedicine.concessionPercent || 0) / 100) * 100
-  ) / 100;
+  const targetDiscountedPrice = getSellingPrice(targetMedicine.unitOriginalPrice || targetMedicine.mrp, targetMedicine.expiryDate);
 
   // Filter valid candidate medicines
   const matches = [];
@@ -374,9 +373,8 @@ export const findAlternatives = (targetMedicine, marketplaceInventory = [], opti
     if (Number(med.quantity) <= 0) return;
     if (med.status === 'pending_disposal' || med.status === 'disposed') return;
 
-    // 4. Exclude expired inventory
-    const exp = calculateMedicineExpiry(med.expiryDate);
-    if (exp.isExpired) return;
+    // 4. Exclude expired or <= 1 month inventory per policy
+    if (!isExpiryAcceptable(med.expiryDate)) return;
 
     // 5. Exclude unverified or suspended hospitals
     if (med.hospitalStatus && med.hospitalStatus !== 'verified') return;
@@ -384,15 +382,14 @@ export const findAlternatives = (targetMedicine, marketplaceInventory = [], opti
     // 6. Check composition equivalence
     const medComposition = extractMedicineComposition(med);
     if (medComposition.canonicalKey === targetKey) {
-      const altDiscountedPrice = Math.round(
-        med.unitOriginalPrice * (1 - (med.concessionPercent || 0) / 100) * 100
-      ) / 100;
+      const altDiscountedPrice = getSellingPrice(med.unitOriginalPrice || med.mrp, med.expiryDate);
 
       const priceDifference = Math.round((targetDiscountedPrice - altDiscountedPrice) * 100) / 100;
       const savingsPercent = targetDiscountedPrice > 0
         ? Math.round((priceDifference / targetDiscountedPrice) * 100)
         : 0;
 
+      const exp = calculateMedicineExpiry(med.expiryDate);
       matches.push({
         ...med,
         extractedComposition: medComposition,
@@ -459,8 +456,7 @@ export const findAlternativesForSearchQuery = (query, marketplaceInventory = [],
   const candidateMatches = marketplaceInventory.filter((m) => {
     if (currentHospitalId && m.hospitalId === currentHospitalId) return false;
     if (Number(m.quantity) <= 0) return false;
-    const exp = calculateMedicineExpiry(m.expiryDate);
-    if (exp.isExpired) return false;
+    if (!isExpiryAcceptable(m.expiryDate)) return false;
 
     const brand = (m.brandName || '').toLowerCase();
     const generic = (m.genericName || '').toLowerCase();

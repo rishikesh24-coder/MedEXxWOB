@@ -26,6 +26,7 @@ export const KEYS = {
   AUDIT_TRAIL: 'sms_audit_trail',
   SETTINGS: 'sms_admin_settings',
   STOCK_HISTORY: 'sms_stock_history',
+  SALE_LISTINGS: 'sms_sale_listings',
 };
 
 // Initialize localStorage with mock data if not present, and seamlessly merge new mock data
@@ -925,5 +926,47 @@ export const getHospitalDocumentChecklist = (hospitalDocuments = []) => {
     submittedCount: allItems.filter((i) => i.isSubmitted).length,
     totalRequired: MANDATORY_DOCUMENTS.length,
   };
+};
+
+/**
+ * Retrieves all sale listings, optionally filtered by seller hospital ID.
+ */
+export const getSaleListings = (hospitalId = null) => {
+  const listings = getStoredItem(KEYS.SALE_LISTINGS, []);
+  if (!hospitalId) return listings;
+  return listings.filter((l) => l.hospitalId === hospitalId || l.sellerHospitalId === hospitalId);
+};
+
+/**
+ * Saves a new sale listing to localStorage.
+ */
+export const saveSaleListing = (listingData) => {
+  const listings = getStoredItem(KEYS.SALE_LISTINGS, []);
+  const newListing = {
+    id: listingData.id || `sale-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+    ...listingData,
+    status: listingData.status || 'active',
+    createdAt: listingData.createdAt || new Date().toISOString(),
+    timestamp: listingData.timestamp || new Date().toISOString(),
+  };
+  listings.unshift(newListing);
+  setStoredItem(KEYS.SALE_LISTINGS, listings);
+  return newListing;
+};
+
+/**
+ * Updates an existing sale listing in localStorage.
+ */
+export const updateSaleListing = (id, updates) => {
+  const listings = getStoredItem(KEYS.SALE_LISTINGS, []);
+  const index = listings.findIndex((l) => l.id === id);
+  if (index === -1) return null;
+  listings[index] = {
+    ...listings[index],
+    ...updates,
+    updatedAt: new Date().toISOString(),
+  };
+  setStoredItem(KEYS.SALE_LISTINGS, listings);
+  return listings[index];
 };
 

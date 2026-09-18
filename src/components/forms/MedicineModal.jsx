@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import Modal from '../common/Modal';
 import { Calculator, Sparkles, AlertTriangle, ShieldCheck, ThermometerSnowflake, Package, Layers, Info } from 'lucide-react';
-import { calculateConcessionRate } from '../../utils/pricingUtils';
+import { getExpiryPricing, isExpiryAcceptable } from '../../config/nearExpiryPolicy';
 import { calculateMedicineExpiry } from '../../utils/expiryUtils';
 import { validateMedicineForm } from '../../utils/validation';
 import { formatCurrency, formatNumber } from '../../utils/formatters';
@@ -104,16 +104,16 @@ export const MedicineModal = ({ isOpen, onClose, onSubmit, initialData = null, i
     }
   }, [initialData, isOpen]);
 
-  // Dynamic concession calculation based on shelf life
+  // Dynamic concession calculation strictly derived from batch expiry date
   const handleDateChange = (dateVal) => {
-    setFormData((prev) => ({ ...prev, expiryDate: dateVal }));
-    if (!dateVal) return;
-
-    const suggested = calculateConcessionRate(dateVal);
-    setAutoSuggestedConcession(suggested);
-    if (!isEdit) {
-      setFormData((prev) => ({ ...prev, concessionPercent: suggested }));
-    }
+    setFormData((prev) => {
+      const pricing = dateVal ? getExpiryPricing(dateVal, prev.unitOriginalPrice || 100) : null;
+      return {
+        ...prev,
+        expiryDate: dateVal,
+        concessionPercent: pricing?.acceptable ? pricing.concessionPercent : 0,
+      };
+    });
   };
 
   const handleBrandNameChange = (val) => {
@@ -148,15 +148,21 @@ export const MedicineModal = ({ isOpen, onClose, onSubmit, initialData = null, i
     }
   };
 
-  const finalUnitPrice = Math.round(
-    formData.unitOriginalPrice * (1 - (formData.concessionPercent || 0) / 100) * 100
-  ) / 100;
-
-  const expiryEvaluation = formData.expiryDate ? calculateMedicineExpiry(formData.expiryDate, formData.quantity) : null;
+  // Central policy pricing derivation
+  const expiryPricing = formData.expiryDate
+    ? getExpiryPricing(formData.expiryDate, formData.unitOriginalPrice || 100, null, formData.quantity || 1)
+    : null;
+  const isAcceptable = !formData.expiryDate || Boolean(expiryPricing?.acceptable);
+  const finalUnitPrice = expiryPricing ? expiryPricing.sellingPricePerUnit : Number(formData.unitOriginalPrice || 100);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (isSubmitting) return;
+
+    if (formData.expiryDate && !isExpiryAcceptable(formData.expiryDate)) {
+      toast.error(expiryPricing?.rejectionReason || 'Stock cannot be accepted because the medicine expires within 1 month.');
+      return;
+    }
 
     const { isValid, errors, sanitizedData } = validateMedicineForm(formData);
     if (!isValid) {
@@ -165,10 +171,8 @@ export const MedicineModal = ({ isOpen, onClose, onSubmit, initialData = null, i
       return;
     }
 
-    // Defensive safeguard: Expired medicines cannot be added to active trade stock
-    const exp = calculateMedicineExpiry(sanitizedData.expiryDate, sanitizedData.quantity);
-    if (exp.isExpired && !isEdit) {
-      toast.error('Cannot add an expired medicine batch to active stock. Expired medicines must be quarantined.');
+    if (sanitizedData.expiryDate && !isExpiryAcceptable(sanitizedData.expiryDate)) {
+      toast.error(expiryPricing?.rejectionReason || 'Stock cannot be accepted because the medicine expires within 1 month.');
       return;
     }
 
@@ -442,29 +446,33 @@ export const MedicineModal = ({ isOpen, onClose, onSubmit, initialData = null, i
           </div>
         </div>
 
-        {/* Expiry Evaluation Callout */}
-        {expiryEvaluation && (
+        {/* Central Policy Expiry Evaluation Callout */}
+        {expiryPricing && !expiryPricing.acceptable && (
+          <div className="p-3.5 rounded-xl border border-rose-300 bg-rose-50 text-rose-900 text-xs flex items-center justify-between font-medium">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-rose-600 flex-shrink-0" />
+              <span><strong>Cannot Accept:</strong> {expiryPricing.rejectionReason}</span>
+            </div>
+            <span className="font-bold uppercase text-[10px] tracking-wider px-2 py-0.5 rounded-full bg-rose-200 text-rose-800">
+              REJECTED
+            </span>
+          </div>
+        )}
+
+        {expiryPricing && expiryPricing.acceptable && (
           <div className={`p-3 rounded-xl border flex items-center justify-between text-xs ${
-            expiryEvaluation.isExpired 
-              ? 'bg-rose-50 border-rose-200 text-rose-800' 
-              : expiryEvaluation.isNearExpiry
-                ? 'bg-amber-50 border-amber-200 text-amber-900'
-                : 'bg-emerald-50 border-emerald-200 text-emerald-800'
+            expiryPricing.concessionPercent > 0
+              ? 'bg-amber-50 border-amber-200 text-amber-900'
+              : 'bg-emerald-50 border-emerald-200 text-emerald-800'
           }`}>
             <div className="flex items-center gap-2">
-              <Info className="w-4 h-4 flex-shrink-0" />
+              <Info className="w-4 h-4 flex-shrink-0 text-primary-600" />
               <span>
-                {expiryEvaluation.isExpired ? (
-                  <><strong>Expiry Status:</strong> Expired ({Math.abs(expiryEvaluation.daysRemaining)} days ago). This batch will be marked as expired and quarantined in inventory.</>
-                ) : expiryEvaluation.isNearExpiry ? (
-                  <><strong>Expiry Status:</strong> Expiring soon in {expiryEvaluation.daysRemaining} days. Eligible for redistribution discount.</>
-                ) : (
-                  <><strong>Expiry Status:</strong> Valid active stock ({expiryEvaluation.daysRemaining} days shelf life remaining).</>
-                )}
+                <strong>Policy Standard:</strong> {expiryPricing.remainingShelfLife.formatted} • {expiryPricing.concessionPercent > 0 ? `Near-expiry concession: ${expiryPricing.concessionPercent}%` : 'Full shelf life (0% concession)'}
               </span>
             </div>
-            <span className="font-bold uppercase text-[10px] tracking-wider px-2 py-0.5 rounded-full bg-white/70">
-              {expiryEvaluation.label}
+            <span className="font-bold uppercase text-[10px] tracking-wider px-2 py-0.5 rounded-full bg-white/80 border border-slate-200">
+              {expiryPricing.tierBadge}
             </span>
           </div>
         )}
@@ -476,10 +484,10 @@ export const MedicineModal = ({ isOpen, onClose, onSubmit, initialData = null, i
               <Calculator className="w-4 h-4 text-primary-600" />
               <span className="text-xs font-bold text-primary-900">Stock Quantity & Pricing Parameters</span>
             </div>
-            {autoSuggestedConcession !== null && !expiryEvaluation?.isExpired && (
+            {expiryPricing?.acceptable && expiryPricing.concessionPercent > 0 && (
               <span className="inline-flex items-center gap-1 text-[11px] font-semibold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full">
                 <Sparkles className="w-3 h-3 text-emerald-600" />
-                Algorithm Suggestion: {autoSuggestedConcession}%
+                Near-Expiry Concession: {expiryPricing.concessionPercent}%
               </span>
             )}
           </div>
@@ -563,10 +571,10 @@ export const MedicineModal = ({ isOpen, onClose, onSubmit, initialData = null, i
                 <span className="font-bold text-slate-900 font-mono">₹{formData.unitOriginalPrice}</span>
               </div>
               <div className="border-l border-slate-300 pl-3">
-                <span className="text-slate-500">Concession Rate: </span>
+                <span className="text-slate-500">Selling Price / Unit: </span>
                 <span className="font-bold text-emerald-700 font-mono">₹{finalUnitPrice}</span>
-                {formData.concessionPercent > 0 && !expiryEvaluation?.isExpired && (
-                  <span className="text-emerald-600 text-[11px] ml-1">({formData.concessionPercent}% off)</span>
+                {expiryPricing?.acceptable && expiryPricing.concessionPercent > 0 && (
+                  <span className="text-emerald-600 text-[11px] ml-1 font-semibold">({expiryPricing.concessionPercent}% concession • -₹{expiryPricing.concessionAmountPerUnit})</span>
                 )}
               </div>
               {Number(formData.costRate) > 0 && (
@@ -577,7 +585,7 @@ export const MedicineModal = ({ isOpen, onClose, onSubmit, initialData = null, i
               )}
             </div>
             <div>
-              <span className="text-slate-500">Total Lot Value: </span>
+              <span className="text-slate-500">Total MRP: </span>
               <span className="font-extrabold text-primary-700 font-mono text-sm">
                 {formatCurrency(Number(formData.unitOriginalPrice || 0) * Number(formData.quantity || 0))}
               </span>
@@ -610,8 +618,9 @@ export const MedicineModal = ({ isOpen, onClose, onSubmit, initialData = null, i
           </button>
           <button
             type="submit"
-            disabled={isSubmitting}
-            className="px-5 py-2 text-xs font-bold text-white bg-primary-600 hover:bg-primary-700 disabled:opacity-75 disabled:cursor-not-allowed rounded-xl shadow-md shadow-primary-500/20 transition-all flex items-center gap-2"
+            disabled={isSubmitting || (expiryPricing && !expiryPricing.acceptable)}
+            title={expiryPricing && !expiryPricing.acceptable ? expiryPricing.rejectionReason : ''}
+            className="px-5 py-2 text-xs font-bold text-white bg-primary-600 hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-xl shadow-md shadow-primary-500/20 transition-all flex items-center gap-2"
           >
             {isSubmitting ? (
               <span>Saving...</span>

@@ -99,8 +99,11 @@ export function validatePrice(value, maxLimit = VALIDATION_LIMITS.MAX_UNIT_PRICE
   return { isValid: true, value: Math.round(num * 100) / 100, error: null };
 }
 
+import { isExpiryAcceptable, getRemainingShelfLife, getExpiryPricing, getConcessionPercent } from '../config/nearExpiryPolicy.js';
+
 /**
  * Validates Manufacturing Date vs Expiry Date consistency
+ * Enforces the central Near-Expiry Concession Policy rejection rules.
  * @param {string|Date} mfgDate 
  * @param {string|Date} expiryDate 
  * @returns {{ isValid: boolean, error: string|null }}
@@ -113,6 +116,14 @@ export function validateDates(mfgDate, expiryDate) {
   const exp = new Date(expiryDate);
   if (isNaN(exp.getTime())) {
     return { isValid: false, error: 'Expiry date is invalid' };
+  }
+
+  const shelfLife = getRemainingShelfLife(expiryDate);
+  if (shelfLife.isExpired) {
+    return { isValid: false, error: 'Stock cannot be accepted because the medicine is expired' };
+  }
+  if (!isExpiryAcceptable(expiryDate)) {
+    return { isValid: false, error: 'Stock cannot be accepted because the medicine expires within 1 month.' };
   }
 
   if (mfgDate) {
@@ -207,18 +218,16 @@ export function validateMedicineForm(formData) {
     errors.minStockLevel = minStockResult.error;
   }
 
-  const concessionNum = Number(formData.concessionPercent ?? 0);
-  let safeConcession = 0;
-  if (!Number.isFinite(concessionNum) || concessionNum < 0 || concessionNum > VALIDATION_LIMITS.MAX_CONCESSION_PERCENT) {
-    errors.concessionPercent = `Concession discount must be between 0% and ${VALIDATION_LIMITS.MAX_CONCESSION_PERCENT}%`;
-  } else {
-    safeConcession = Math.round(concessionNum);
-  }
-
   const dateResult = validateDates(formData.mfgDate, formData.expiryDate);
   if (!dateResult.isValid) {
     errors.dates = dateResult.error;
+    errors.expiryDate = dateResult.error;
   }
+
+  // Derive policy-governed concession from batch expiry date (no manual override)
+  const policyPricing = getExpiryPricing(formData.expiryDate, priceResult.value || 100);
+  const safeConcession = policyPricing.concessionPercent;
+  const concessionRate = policyPricing.sellingPricePerUnit;
 
   const batchResult = validateBatchNumber(formData.batchNo || 'BATCH-01');
   if (!batchResult.isValid) {
@@ -256,7 +265,7 @@ export function validateMedicineForm(formData) {
       totalQuantity: qtyResult.value,
       availableQuantity: qtyResult.value,
       mrp: priceResult.value,
-      concessionRate: Math.round((priceResult.value * (1 - safeConcession / 100)) * 100) / 100,
+      concessionRate,
       costRate: Number(formData.costRate) > 0 ? Number(formData.costRate) : Math.round((priceResult.value || 0) * 0.85),
       notes,
     },

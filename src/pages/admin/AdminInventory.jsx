@@ -39,6 +39,7 @@ import StatusBadge from '../../components/common/StatusBadge';
 import Modal from '../../components/common/Modal';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import toast from 'react-hot-toast';
+import { getExpiryPricing, isExpiryAcceptable } from '../../config/nearExpiryPolicy';
 
 /**
  * Robust composite medicine grouping key generator.
@@ -1034,8 +1035,19 @@ export const AdminInventory = () => {
       return;
     }
 
+    if (!isExpiryAcceptable(addForm.expiryDate)) {
+      toast.error('Stock cannot be accepted because the medicine expires within 1 month.');
+      return;
+    }
+
     try {
-      const result = await adminService.adminAddStock(addForm);
+      const policyPricing = getExpiryPricing(addForm.expiryDate, addForm.mrp || 100);
+      const submissionData = {
+        ...addForm,
+        concessionRate: policyPricing.sellingPricePerUnit,
+        concessionPercent: policyPricing.concessionPercent
+      };
+      const result = await adminService.adminAddStock(submissionData);
       toast.success(`Successfully saved stock: ${result.brandName} (${addForm.quantity} units)`);
       setIsAddStockOpen(false);
       await loadInventory();
@@ -3257,9 +3269,22 @@ export const AdminInventory = () => {
                   type="date"
                   required
                   value={addForm.expiryDate}
-                  onChange={(e) => setAddForm((prev) => ({ ...prev, expiryDate: e.target.value }))}
+                  onChange={(e) => {
+                    const newExp = e.target.value;
+                    const pricing = getExpiryPricing(newExp, addForm.mrp || 100);
+                    setAddForm((prev) => ({ 
+                      ...prev, 
+                      expiryDate: newExp,
+                      concessionRate: pricing.sellingPricePerUnit
+                    }));
+                  }}
                   className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs"
                 />
+                {addForm.expiryDate && !isExpiryAcceptable(addForm.expiryDate) && (
+                  <p className="text-[11px] text-rose-600 font-bold mt-1">
+                    Cannot accept — medicine expires within 1 month.
+                  </p>
+                )}
               </div>
             </div>
 
@@ -3271,7 +3296,15 @@ export const AdminInventory = () => {
                   type="number"
                   min="0"
                   value={addForm.mrp}
-                  onChange={(e) => setAddForm((prev) => ({ ...prev, mrp: e.target.value }))}
+                  onChange={(e) => {
+                    const newMRP = Number(e.target.value) || 0;
+                    const pricing = getExpiryPricing(addForm.expiryDate, newMRP);
+                    setAddForm((prev) => ({ 
+                      ...prev, 
+                      mrp: e.target.value,
+                      concessionRate: pricing.sellingPricePerUnit
+                    }));
+                  }}
                   className="w-full px-3 py-2 rounded-xl border border-slate-200 font-mono"
                 />
               </div>
@@ -3280,10 +3313,12 @@ export const AdminInventory = () => {
                 <input
                   type="number"
                   min="0"
+                  readOnly
                   value={addForm.concessionRate}
-                  onChange={(e) => setAddForm((prev) => ({ ...prev, concessionRate: e.target.value }))}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 font-mono text-emerald-700"
+                  title="Automatically calculated from batch expiry date per Near-Expiry Concession Policy"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 font-mono text-emerald-700 bg-slate-50 cursor-not-allowed"
                 />
+                <span className="text-[9px] text-slate-400 font-mono">Policy Governed</span>
               </div>
               <div>
                 <label className="block font-bold text-slate-700 mb-1">Cost Rate (₹)</label>

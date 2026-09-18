@@ -1,10 +1,8 @@
-/**
- * Centralized Expiry & Request SLA Utilities for MedEx
- */
+import { isExpiryAcceptable, getRemainingShelfLife, DAYS_PER_MONTH } from '../config/nearExpiryPolicy.js';
 
 // Configurable thresholds in days
 export const EXPIRY_THRESHOLDS = {
-  CRITICAL_DAYS: 30,
+  CRITICAL_DAYS: DAYS_PER_MONTH, // <= 1 month is a HARD rejection
   NEAR_EXPIRY_DAYS: 90,
   MONITORED_DAYS: 180,
   LOW_STOCK_MIN_UNITS: 25,
@@ -90,8 +88,10 @@ export const calculateMedicineExpiry = (
       isNearExpiry: true,
       isCritical: true,
       isLowStock: qty <= minStockThreshold,
-      canBeListed: true,
+      canBeListed: false, // HARD REJECTION: Stock expiring within 1 month cannot be listed or purchased
       canBeDisposed: true,
+      acceptable: false,
+      rejectionReason: 'Stock cannot be accepted because the medicine expires within 1 month.',
     };
   }
 

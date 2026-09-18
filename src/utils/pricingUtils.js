@@ -1,60 +1,58 @@
 /**
  * Centralized Pricing & Concession Utilities for MedEx
- * Enforces dynamic concessions based on remaining shelf life, transparent itemized fees,
- * and strict non-negative boundary conditions.
+ * 
+ * Standardized across the application to delegate directly to
+ * src/config/nearExpiryPolicy.js (Single Source of Truth).
  */
 
-// Shelf-life concession tiers (the closer the expiry, the greater the concession)
-export const CONCESSION_TIERS = [
-  { maxDays: 0, discountPercent: 0, label: 'Expired (Unavailable)' },
-  { maxDays: 30, discountPercent: 60, label: 'Critical Expiry (< 30d)' },
-  { maxDays: 60, discountPercent: 45, label: 'Urgent Allocation (< 60d)' },
-  { maxDays: 90, discountPercent: 35, label: 'Near Expiry (< 90d)' },
-  { maxDays: 180, discountPercent: 20, label: 'Moderate Shelf Life (< 6m)' },
-  { maxDays: 365, discountPercent: 10, label: 'Standard Surplus (< 1y)' },
-  { maxDays: Infinity, discountPercent: 5, label: 'Long Shelf Life (> 1y)' },
-];
+import {
+  NEAR_EXPIRY_SCHEDULE,
+  getRemainingShelfLife,
+  getExpiryStatus,
+  isExpiryAcceptable,
+  getConcessionPercent,
+  getConcessionAmount,
+  getSellingPrice,
+  getExpiryPricing,
+  roundMoney
+} from '../config/nearExpiryPolicy.js';
+
+// Re-export central schedule and utilities for backwards compatibility
+export {
+  NEAR_EXPIRY_SCHEDULE as CONCESSION_TIERS,
+  getRemainingShelfLife,
+  getExpiryStatus,
+  isExpiryAcceptable,
+  getConcessionPercent,
+  getConcessionAmount,
+  getSellingPrice,
+  getExpiryPricing,
+  roundMoney
+};
 
 /**
- * Derives recommended concession percentage from expiry date.
- * If user or medicine specified a manual concession, it respects it while enforcing boundaries.
+ * Derives recommended concession percentage and tier label from expiry date.
+ * Strictly adheres to the central Near-Expiry Concession Policy without manual override.
  * @param {string|Date} expiryDateStr 
- * @param {number|null} manualConcession 
- * @returns {{ concessionPercent: number, tierLabel: string }}
+ * @returns {{ concessionPercent: number, tierLabel: string, acceptable: boolean }}
  */
-export const calculateShelfLifeConcession = (expiryDateStr, manualConcession = null) => {
-  if (manualConcession !== null && manualConcession !== undefined && manualConcession !== '') {
-    const parsed = Math.max(0, Math.min(90, Number(manualConcession) || 0));
-    return {
-      concessionPercent: parsed,
-      tierLabel: 'Custom Partner Concession',
-    };
-  }
-
-  if (!expiryDateStr) {
-    return { concessionPercent: 10, tierLabel: 'Standard Inventory Concession' };
-  }
-
-  const now = new Date();
-  const expDate = new Date(expiryDateStr);
-  const diffDays = Math.ceil((expDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-
-  if (diffDays <= 0) {
-    return { concessionPercent: 0, tierLabel: 'Expired (Unavailable for Purchase)' };
-  }
-
-  const matchedTier = CONCESSION_TIERS.find((tier) => diffDays <= tier.maxDays) || CONCESSION_TIERS[CONCESSION_TIERS.length - 1];
+export const calculateShelfLifeConcession = (expiryDateStr) => {
+  const pricing = getExpiryPricing(expiryDateStr, 100);
   return {
-    concessionPercent: matchedTier.discountPercent,
-    tierLabel: matchedTier.label,
+    concessionPercent: pricing.concessionPercent,
+    tierLabel: pricing.tierLabel,
+    acceptable: pricing.acceptable,
+    status: pricing.expiryStatus,
   };
 };
 
 /**
  * Convenience helper returning just the numeric concession percent
+ * @param {string|Date} expiryDateStr
+ * @returns {number}
  */
 export const calculateConcessionRate = (expiryDateStr) => {
-  return calculateShelfLifeConcession(expiryDateStr).concessionPercent;
+  return getConcessionPercent(expiryDateStr);
 };
 
 /**
@@ -62,38 +60,35 @@ export const calculateConcessionRate = (expiryDateStr) => {
  * @param {object} params
  * @param {number} params.unitOriginalPrice - MRP / Original catalog unit cost
  * @param {string} [params.expiryDate] - Expiration date string
- * @param {number} [params.concessionPercent] - Optional override concession percentage
  * @param {number} params.quantity - Number of units requested
- * @param {number} [params.distanceKm] - Distance in km between buyer and seller
- * @param {boolean} [params.isColdChain] - Whether medicine requires 2°C - 8°C cold chain transport
+ * @param {number} [params.distanceKm=15] - Distance in km between buyer and seller
+ * @param {boolean} [params.isColdChain=false] - Whether medicine requires cold chain transport
  * @param {number} [params.gstRate=0.12] - Standard statutory GST rate (12% for pharma)
  * @returns {object}
  */
 export const calculateOrderPricing = ({
   unitOriginalPrice = 0,
   expiryDate = null,
-  concessionPercent = null,
   quantity = 1,
   distanceKm = 15,
   isColdChain = false,
   gstRate = 0.12,
 }) => {
   const originalUnit = Math.max(0, Number(unitOriginalPrice) || 0);
-  const qty = Math.max(1, Number(quantity) || 1);
+  const qty = Math.max(1, Math.floor(Number(quantity) || 1));
 
-  // Derive concession
-  const concessionInfo = calculateShelfLifeConcession(expiryDate, concessionPercent);
-  const discountPct = concessionInfo.concessionPercent;
+  // Derive dynamic pricing via central near-expiry policy
+  const expiryPricing = getExpiryPricing(expiryDate, originalUnit, null, qty);
 
-  // Concession Rate (Offered MedEx Rate, Never negative)
-  const unitDiscount = (originalUnit * discountPct) / 100;
-  const concessionRate = Math.max(0, Math.round((originalUnit - unitDiscount) * 100) / 100);
-  const unitSellingPrice = concessionRate; // Preserved for backwards compatibility
+  const discountPct = expiryPricing.concessionPercent;
+  const unitDiscount = expiryPricing.concessionAmountPerUnit;
+  const unitSellingPrice = expiryPricing.sellingPricePerUnit;
+  const concessionRate = unitSellingPrice; // Preserved for backwards compatibility
 
   // Subtotal for medicine units
-  const originalSubtotal = Math.round(originalUnit * qty * 100) / 100;
-  const totalSavings = Math.round(unitDiscount * qty * 100) / 100;
-  const medicineSubtotal = Math.max(0, Math.round(concessionRate * qty * 100) / 100);
+  const originalSubtotal = expiryPricing.totalMRP;
+  const totalSavings = expiryPricing.totalConcession;
+  const medicineSubtotal = expiryPricing.finalSellingPrice;
 
   // Cold chain logistics fee calculation:
   // Base fee ₹200 + ₹12/km, plus ₹150 cryogenic insulated monitoring buffer if cold chain
@@ -104,9 +99,9 @@ export const calculateOrderPricing = ({
   const logisticsFee = baseLogistics + distanceFee + coldChainSurcharge;
 
   // Statutory Tax (GST 12% on medicine exchange + logistics handling)
-  const taxableTotal = medicineSubtotal + logisticsFee;
-  const gstAmount = Math.round(taxableTotal * gstRate);
-  const totalPayable = taxableTotal + gstAmount;
+  const taxableTotal = roundMoney(medicineSubtotal + logisticsFee);
+  const gstAmount = roundMoney(taxableTotal * gstRate);
+  const totalPayable = roundMoney(taxableTotal + gstAmount);
 
   return {
     mrp: originalUnit,
@@ -116,16 +111,24 @@ export const calculateOrderPricing = ({
     unitFinalPrice: concessionRate,
     unitSellingPrice,
     unitDiscount,
+    concessionAmountPerUnit: unitDiscount,
+    sellingPricePerUnit: unitSellingPrice,
     quantity: qty,
     originalSubtotal,
+    totalMRP: originalSubtotal,
     totalSavings,
+    totalConcession: totalSavings,
     medicineSubtotal,
+    finalSellingPrice: medicineSubtotal,
     distanceKm: dist,
     isColdChain,
     logisticsFee,
     gstRate,
     gstAmount,
     totalPayable,
-    tierLabel: concessionInfo.tierLabel,
+    tierLabel: expiryPricing.tierLabel,
+    tierBadge: expiryPricing.tierBadge,
+    acceptable: expiryPricing.acceptable,
+    rejectionReason: expiryPricing.rejectionReason,
   };
 };

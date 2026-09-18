@@ -5,6 +5,7 @@ import Navbar from '../components/common/Navbar';
 import Sidebar from '../components/common/Sidebar';
 import StatusBadge from '../components/common/StatusBadge';
 import RouteLoadingFallback from '../components/common/RouteLoadingFallback';
+import PortalHistoryNavigation from '../components/common/PortalHistoryNavigation';
 import { Building2, PlusCircle, Search, Radio, ShieldCheck, Sparkles, Navigation } from 'lucide-react';
 
 export const HospitalLayout = () => {
@@ -107,6 +108,10 @@ export const HospitalLayout = () => {
 
         {/* Page Main Content */}
         <main className="flex-1 p-4 sm:p-6 lg:p-7 overflow-y-auto">
+          {/* Global In-App Back/Forward Controls */}
+          <div className="mb-3 sm:mb-4 flex items-center justify-between">
+            <PortalHistoryNavigation portal="hospital" />
+          </div>
           <Suspense fallback={<RouteLoadingFallback text="Loading hospital workspace..." />}>
             <Outlet />
           </Suspense>
