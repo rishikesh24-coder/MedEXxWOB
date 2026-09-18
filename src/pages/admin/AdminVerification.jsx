@@ -18,7 +18,9 @@ import {
   Download,
   AlertCircle,
   HelpCircle,
-  MessageSquare
+  MessageSquare,
+  ChevronDown,
+  Filter
 } from 'lucide-react';
 import { 
   fetchHospitals, 
@@ -65,7 +67,7 @@ export const matchesHospitalTab = (hospital, tab) => {
 export const getTabFromParam = (param) => {
   if (!param) return null;
   const p = String(param).toLowerCase().trim().replace(/[\s-]+/g, '_');
-  if (p === 'approved' || p === 'verified') return 'verified';
+  if (p === 'approved' || p === 'verified') return 'approved';
   if (p === 'pending' || p === 'pending_approval') return 'pending';
   if (p === 'under_review') return 'under_review';
   if (p === 'rejected') return 'rejected';
@@ -83,7 +85,7 @@ export const AdminVerification = () => {
   const processedRef = useRef(false);
   const queueSectionRef = useRef(null);
 
-  // Tabs: 'pending' (default) | 'under_review' | 'verified' | 'rejected' | 'all'
+  // Tabs: 'pending' (default) | 'under_review' | 'approved' | 'rejected' | 'all'
   const [activeTab, setActiveTab] = useState(() => {
     const fromUrl = getTabFromParam(searchParams.get('tab') || searchParams.get('status'));
     return fromUrl || 'pending';
@@ -98,9 +100,11 @@ export const AdminVerification = () => {
     }
   }, [searchParams]);
 
-  // Unified tab selection handler for both summary cards and queue tabs
+  // Unified tab selection handler for both summary cards and queue filter dropdown
   const handleSelectTab = (newTab, shouldScroll = false) => {
-    const targetTab = (newTab === 'approved' || newTab === 'verified') ? 'verified' : newTab;
+    let targetTab = newTab;
+    if (newTab === 'verified' || newTab === 'approved') targetTab = 'approved';
+    if (newTab === 'pending_approval') targetTab = 'pending';
     setActiveTab(targetTab);
 
     try {
@@ -318,10 +322,10 @@ export const AdminVerification = () => {
         </div>
       </div>
 
-      {/* 2. SUMMARY METRIC CARDS (Req 18: Prioritizes Pending Reviews) */}
+      {/* 2. SUMMARY METRIC CARDS (Interactive filters) */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         
-        {/* Prioritized Card: Pending Reviews */}
+        {/* Card 1: Pending Reviews */}
         <div 
           role="button"
           tabIndex={0}
@@ -334,10 +338,10 @@ export const AdminVerification = () => {
           }}
           aria-label="Filter by Pending Reviews"
           aria-pressed={activeTab === 'pending'}
-          className={`p-5 rounded-2xl transition-all relative overflow-hidden cursor-pointer select-none text-left focus:outline-none focus:ring-2 focus:ring-amber-500/50 ${
+          className={`p-5 rounded-2xl relative overflow-hidden cursor-pointer select-none text-left transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg active:scale-[0.99] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-amber-400/40 ${
             activeTab === 'pending'
               ? 'bg-gradient-to-br from-amber-50 via-white to-white border-2 border-amber-400 shadow-md ring-2 ring-amber-400/30'
-              : 'bg-white border-2 border-amber-300 bg-gradient-to-br from-amber-50/40 via-white to-white shadow-sm hover:shadow-md hover:border-amber-400'
+              : 'bg-white border-2 border-amber-300 bg-gradient-to-br from-amber-50/40 via-white to-white shadow-sm hover:border-amber-400'
           }`}
         >
           <div className="absolute top-0 right-0 w-24 h-24 bg-amber-400/10 rounded-full blur-xl pointer-events-none" />
@@ -357,36 +361,43 @@ export const AdminVerification = () => {
             </div>
           </div>
           <div className="text-3xl font-black text-amber-700 font-mono mt-2">{pendingCount}</div>
-          <p className="text-[11px] text-amber-800 font-semibold mt-0.5">
-            Applications waiting for admin approval or rejection
-          </p>
+          <div className="flex items-center justify-between mt-0.5 gap-2">
+            <p className="text-[11px] text-amber-800 font-semibold">
+              Applications waiting for admin approval or rejection
+            </p>
+            {activeTab === 'pending' && (
+              <span className="text-[10px] font-bold text-amber-700 uppercase tracking-wider shrink-0 bg-amber-100 px-2 py-0.5 rounded-md border border-amber-300">
+                Active
+              </span>
+            )}
+          </div>
         </div>
 
         {/* Card 2: Approved */}
         <div 
           role="button"
           tabIndex={0}
-          onClick={() => handleSelectTab('verified', true)}
+          onClick={() => handleSelectTab('approved', true)}
           onKeyDown={(e) => {
             if (e.key === 'Enter' || e.key === ' ') {
               e.preventDefault();
-              handleSelectTab('verified', true);
+              handleSelectTab('approved', true);
             }
           }}
           aria-label="Filter by Approved"
-          aria-pressed={activeTab === 'verified'}
-          className={`p-5 rounded-2xl transition-all cursor-pointer select-none text-left focus:outline-none focus:ring-2 focus:ring-emerald-500/50 ${
-            activeTab === 'verified'
+          aria-pressed={activeTab === 'approved' || activeTab === 'verified'}
+          className={`p-5 rounded-2xl relative overflow-hidden cursor-pointer select-none text-left transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg active:scale-[0.99] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-emerald-400/40 ${
+            activeTab === 'approved' || activeTab === 'verified'
               ? 'bg-emerald-50/50 border-2 border-emerald-500 shadow-md ring-2 ring-emerald-500/20'
-              : 'bg-white border border-slate-200/80 shadow-sm hover:shadow-md hover:border-emerald-300'
+              : 'bg-white border border-slate-200/80 shadow-sm hover:border-emerald-300'
           }`}
         >
           <div className="flex items-center justify-between">
             <span className={`text-[11px] font-bold uppercase tracking-wider ${
-              activeTab === 'verified' ? 'text-emerald-800' : 'text-slate-400'
+              activeTab === 'approved' || activeTab === 'verified' ? 'text-emerald-800' : 'text-slate-400'
             }`}>Approved</span>
             <div className={`w-9 h-9 rounded-xl flex items-center justify-center border transition-colors ${
-              activeTab === 'verified'
+              activeTab === 'approved' || activeTab === 'verified'
                 ? 'bg-emerald-600 text-white border-emerald-700 shadow-sm'
                 : 'bg-emerald-50 text-emerald-700 border-emerald-100'
             }`}>
@@ -394,7 +405,14 @@ export const AdminVerification = () => {
             </div>
           </div>
           <div className="text-2xl font-black text-emerald-700 font-mono mt-2">{approvedCount}</div>
-          <p className="text-[11px] text-slate-500 mt-0.5">Accredited with portal trading privileges</p>
+          <div className="flex items-center justify-between mt-0.5 gap-2">
+            <p className="text-[11px] text-slate-500">Accredited with portal trading privileges</p>
+            {(activeTab === 'approved' || activeTab === 'verified') && (
+              <span className="text-[10px] font-bold text-emerald-700 uppercase tracking-wider shrink-0 bg-emerald-100 px-2 py-0.5 rounded-md border border-emerald-300">
+                Active
+              </span>
+            )}
+          </div>
         </div>
 
         {/* Card 3: Rejected */}
@@ -410,10 +428,10 @@ export const AdminVerification = () => {
           }}
           aria-label="Filter by Rejected"
           aria-pressed={activeTab === 'rejected'}
-          className={`p-5 rounded-2xl transition-all cursor-pointer select-none text-left focus:outline-none focus:ring-2 focus:ring-rose-500/50 ${
+          className={`p-5 rounded-2xl relative overflow-hidden cursor-pointer select-none text-left transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg active:scale-[0.99] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-rose-400/40 ${
             activeTab === 'rejected'
               ? 'bg-rose-50/50 border-2 border-rose-500 shadow-md ring-2 ring-rose-500/20'
-              : 'bg-white border border-slate-200/80 shadow-sm hover:shadow-md hover:border-rose-300'
+              : 'bg-white border border-slate-200/80 shadow-sm hover:border-rose-300'
           }`}
         >
           <div className="flex items-center justify-between">
@@ -429,97 +447,110 @@ export const AdminVerification = () => {
             </div>
           </div>
           <div className="text-2xl font-black text-rose-700 font-mono mt-2">{rejectedCount}</div>
-          <p className="text-[11px] text-slate-500 mt-0.5">Declined access with recorded compliance reason</p>
+          <div className="flex items-center justify-between mt-0.5 gap-2">
+            <p className="text-[11px] text-slate-500">Declined access with recorded compliance reason</p>
+            {activeTab === 'rejected' && (
+              <span className="text-[10px] font-bold text-rose-700 uppercase tracking-wider shrink-0 bg-rose-100 px-2 py-0.5 rounded-md border border-rose-300">
+                Active
+              </span>
+            )}
+          </div>
         </div>
 
       </div>
 
-      {/* 3. QUEUE CONTROLS (Req 7, Req 19: Search pending hospitals & Queue Tabs) */}
+      {/* 3. QUEUE CONTROLS: Status Dropdown Filter & Search */}
       <div 
         ref={queueSectionRef}
         id="verification-queue"
-        className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 scroll-mt-6"
+        className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 scroll-mt-6"
       >
         
-        {/* Queue Filter Tabs */}
-        <div className="flex flex-wrap items-center gap-1.5" role="tablist" aria-label="Verification queue tabs">
-          <button
-            role="tab"
-            aria-selected={activeTab === 'pending'}
-            onClick={() => handleSelectTab('pending')}
-            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
-              activeTab === 'pending'
-                ? 'bg-amber-500 text-white shadow-md shadow-amber-500/20'
-                : 'bg-slate-100 text-slate-600 hover:bg-slate-200/70'
-            }`}
-          >
-            <Clock className="w-3.5 h-3.5" />
-            <span>Pending Approval ({pendingCount})</span>
-          </button>
+        {/* Status Dropdown Filter */}
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 flex-1">
+          <div className="flex items-center gap-2">
+            <label 
+              htmlFor="status-filter-select" 
+              className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5 shrink-0 select-none"
+            >
+              <Filter className="w-3.5 h-3.5 text-primary-600" />
+              <span>Status:</span>
+            </label>
+            <div className="relative flex-1 sm:w-64">
+              <select
+                id="status-filter-select"
+                name="status"
+                aria-label="Filter applications by status"
+                value={activeTab === 'verified' ? 'approved' : activeTab}
+                onChange={(e) => handleSelectTab(e.target.value)}
+                className="w-full appearance-none pl-3.5 pr-9 py-2.5 rounded-xl text-xs font-bold border border-slate-200 bg-white text-slate-800 shadow-sm hover:border-primary-400 focus:outline-none focus:ring-2 focus:ring-primary-500/40 focus:border-primary-500 cursor-pointer transition-all"
+              >
+                <option value="pending">Pending Approval ({pendingCount})</option>
+                <option value="under_review">Under Review ({underReviewCount})</option>
+                <option value="approved">Approved ({approvedCount})</option>
+                <option value="rejected">Rejected ({rejectedCount})</option>
+                <option value="all">All ({hospitals.length})</option>
+              </select>
+              <ChevronDown className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+            </div>
+          </div>
 
-          <button
-            role="tab"
-            aria-selected={activeTab === 'under_review'}
-            onClick={() => handleSelectTab('under_review')}
-            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${
-              activeTab === 'under_review'
-                ? 'bg-cyan-600 text-white shadow-sm'
-                : 'bg-slate-100 text-slate-600 hover:bg-slate-200/70'
-            }`}
-          >
-            <span>Under Review ({underReviewCount})</span>
-          </button>
-
-          <button
-            role="tab"
-            aria-selected={activeTab === 'verified'}
-            onClick={() => handleSelectTab('verified')}
-            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${
-              activeTab === 'verified'
-                ? 'bg-emerald-600 text-white shadow-sm'
-                : 'bg-slate-100 text-slate-600 hover:bg-slate-200/70'
-            }`}
-          >
-            <span>Approved ({approvedCount})</span>
-          </button>
-
-          <button
-            role="tab"
-            aria-selected={activeTab === 'rejected'}
-            onClick={() => handleSelectTab('rejected')}
-            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${
-              activeTab === 'rejected'
-                ? 'bg-rose-600 text-white shadow-sm'
-                : 'bg-slate-100 text-slate-600 hover:bg-slate-200/70'
-            }`}
-          >
-            <span>Rejected ({rejectedCount})</span>
-          </button>
-
-          <button
-            role="tab"
-            aria-selected={activeTab === 'all'}
-            onClick={() => handleSelectTab('all')}
-            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${
-              activeTab === 'all'
-                ? 'bg-primary-700 text-white shadow-sm'
-                : 'bg-slate-100 text-slate-600 hover:bg-slate-200/70'
-            }`}
-          >
-            <span>All ({hospitals.length})</span>
-          </button>
+          {/* Active Status Badge indicator */}
+          <div className="hidden lg:flex items-center">
+            {activeTab === 'pending' && (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
+                <Clock className="w-3 h-3 text-amber-600" />
+                <span>{pendingCount} Awaiting Review</span>
+              </span>
+            )}
+            {activeTab === 'under_review' && (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-cyan-50 text-cyan-800 border border-cyan-200">
+                <FileText className="w-3 h-3 text-cyan-600" />
+                <span>{underReviewCount} Under Review</span>
+              </span>
+            )}
+            {(activeTab === 'approved' || activeTab === 'verified') && (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                <span>{approvedCount} Approved</span>
+              </span>
+            )}
+            {activeTab === 'rejected' && (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-rose-50 text-rose-800 border border-rose-200">
+                <X className="w-3 h-3 text-rose-600" />
+                <span>{rejectedCount} Rejected</span>
+              </span>
+            )}
+            {activeTab === 'all' && (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-slate-100 text-slate-700 border border-slate-200">
+                <span>{hospitals.length} Total Registrations</span>
+              </span>
+            )}
+          </div>
         </div>
 
-        {/* Search Bar for Verification Queue (Req 19) */}
-        <div className="relative w-full sm:w-72">
+        {/* Search Bar for Verification Queue */}
+        <div className="relative w-full sm:w-72 md:w-80">
           <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
           <input
             type="text"
-            placeholder="Search pending applications..."
+            id="hospital-queue-search"
+            aria-label="Search applications"
+            placeholder="Search applications, hospital, city, reg ID..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 font-medium"
+            className="w-full pl-9 pr-8 py-2.5 text-xs rounded-xl border border-slate-200 bg-slate-50/50 hover:bg-white focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary-500/40 focus:border-primary-500 font-medium transition-all shadow-sm"
           />
+          {searchTerm && (
+            <button
+              type="button"
+              onClick={() => setSearchTerm('')}
+              aria-label="Clear search"
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600 rounded-md"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
 
       </div>
@@ -611,9 +642,9 @@ export const AdminVerification = () => {
           <div className="px-6 py-14 text-center text-slate-400">
             <FileCheck2 className="w-10 h-10 mx-auto mb-2 opacity-40" />
             <p className="font-bold text-slate-700 text-sm">
-              No applications in the {activeTab === 'verified' ? 'approved' : activeTab.replace('_', ' ')} queue
+              No applications in the {activeTab === 'verified' || activeTab === 'approved' ? 'approved' : activeTab.replace('_', ' ')} queue
             </p>
-            <p className="text-xs text-slate-400 mt-1">Select a different tab or clear your search query.</p>
+            <p className="text-xs text-slate-400 mt-1">Select a different status filter or clear your search query.</p>
           </div>
         )}
       </div>
