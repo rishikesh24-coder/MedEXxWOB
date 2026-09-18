@@ -33,9 +33,9 @@ export const respondToRequest = createAsyncThunk('requests/respond', async ({ re
   }
 });
 
-export const payForRequest = createAsyncThunk('requests/pay', async ({ requestId, paymentMethod, verification }, { rejectWithValue }) => {
+export const payForRequest = createAsyncThunk('requests/pay', async ({ requestId, paymentMethod, verification, deliveryCharge, distanceKm, totalPayable }, { rejectWithValue }) => {
   try {
-    return await hospitalService.processPayment({ requestId, paymentMethod, verification });
+    return await hospitalService.processPayment({ requestId, paymentMethod, verification, deliveryCharge, distanceKm, totalPayable });
   } catch (err) {
     return rejectWithValue(err.message);
   }

@@ -330,8 +330,8 @@ export const MyRequests = () => {
     setSortOrder('desc');
   };
 
-  const handlePaymentSuccess = async ({ requestId, paymentMethod }) => {
-    const result = await dispatch(payForRequest({ requestId, paymentMethod }));
+  const handlePaymentSuccess = async ({ requestId, paymentMethod, deliveryCharge, distanceKm, totalPayable, verification }) => {
+    const result = await dispatch(payForRequest({ requestId, paymentMethod, deliveryCharge, distanceKm, totalPayable, verification }));
     if (result.meta.requestStatus === 'rejected') {
       throw new Error(result.payload || 'Payment could not be processed');
     }
@@ -672,7 +672,12 @@ export const MyRequests = () => {
 
                       {/* Total Settlement */}
                       <td className="py-3.5 px-4 text-right font-mono font-black text-slate-900">
-                        ₹{(req.totalAmount || 0).toLocaleString()}
+                        <div>₹{(req.finalTotalAmount || req.totalAmount || 0).toLocaleString()}</div>
+                        {req.deliveryCharge > 0 && (
+                          <div className="text-[10px] text-teal-700 font-normal">
+                            incl. ₹{req.deliveryCharge} delivery
+                          </div>
+                        )}
                       </td>
 
                       {/* Current Status */}
@@ -797,7 +802,10 @@ export const MyRequests = () => {
                     </div>
                     <div>
                       <span className="text-[10px] text-slate-400 block uppercase">Settlement</span>
-                      <span className="font-black text-slate-900">₹{(req.totalAmount || 0).toLocaleString()}</span>
+                      <span className="font-black text-slate-900 block">₹{(req.finalTotalAmount || req.totalAmount || 0).toLocaleString()}</span>
+                      {req.deliveryCharge > 0 && (
+                        <span className="text-[9px] text-teal-700 block">incl. ₹{req.deliveryCharge} delivery</span>
+                      )}
                     </div>
                     <div>
                       <span className="text-[10px] text-slate-400 block uppercase">Payment</span>

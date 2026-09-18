@@ -9,7 +9,7 @@ const paymentController = {
    */
   async createPayment(req, res, next) {
     try {
-      const { requestId } = req.body;
+      const { requestId, deliveryCharge, distanceKm, totalPayable } = req.body;
       if (!requestId) {
         return res.status(400).json({
           success: false,
@@ -23,6 +23,9 @@ const paymentController = {
       const payment = await paymentService.createPayment({
         user: req.user,
         requestId,
+        deliveryCharge,
+        distanceKm,
+        totalPayable,
       });
 
       return successResponse(res, payment, 'Payment order created successfully', 201);

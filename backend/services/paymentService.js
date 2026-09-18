@@ -36,7 +36,7 @@ const paymentService = {
    * Creates a secure server-side payment intent.
    * STRICT AMOUNT PROTECTION: Calculates total amount exclusively from database/request snapshot.
    */
-  async createPayment({ user, requestId }) {
+  async createPayment({ user, requestId, deliveryCharge = 0, distanceKm = null, totalPayable = null }) {
     if (!user) {
       const err = new Error('Authentication required to create payment');
       err.statusCode = 401;
@@ -83,12 +83,17 @@ const paymentService = {
       }
 
       // 4. Server-Side Authoritative Amount Calculation
-      const amount = Number(request.totalAmount || request.total_amount || 0);
-      if (amount <= 0) {
+      // Base medicine payable amount from request snapshot
+      const medicineAmount = Number(request.totalAmount || request.total_amount || 0);
+      if (medicineAmount <= 0) {
         const err = new Error('Authoritative requisition total must be greater than zero.');
         err.statusCode = 400;
         throw err;
       }
+
+      // Add estimated distance-based logistics fee if present
+      const logisticsFee = Number(deliveryCharge || request.deliveryCharge || request.delivery_charge || 0);
+      const amount = Math.round((medicineAmount + Math.max(0, logisticsFee)) * 100) / 100;
 
       const provider = getPaymentProvider();
       const transactionId = `PAY-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.floor(1000 + Math.random() * 9000)}`;
@@ -125,6 +130,10 @@ const paymentService = {
         medicineName: request.medicineName || request.medicine_name || 'Pharmaceutical Order',
         quantity: request.quantity || 1,
         amount,
+        delivery_charge: logisticsFee,
+        deliveryCharge: logisticsFee,
+        distance_km: distanceKm,
+        distanceKm,
         gst_amount: Number(request.gstAmount || request.gst_amount || 0),
         gstAmount: Number(request.gstAmount || request.gst_amount || 0),
         total_paid: amount,

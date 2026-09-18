@@ -79,7 +79,7 @@ export const paymentService = {
    * Authoritatively initiate a payment order on the backend
    * Returns order details including providerOrderId, paymentId, amount, keyId
    */
-  async createPaymentOrder({ requestId }) {
+  async createPaymentOrder({ requestId, deliveryCharge = 0, distanceKm = null, totalPayable = null }) {
     if (!requestId) throw new Error('Requisition ID is required to create payment order');
 
     const res = await fetch(`${API_BASE_URL}/payments/create`, {
@@ -88,7 +88,7 @@ export const paymentService = {
         'Content-Type': 'application/json',
         ...getAuthHeader(),
       },
-      body: JSON.stringify({ requestId }),
+      body: JSON.stringify({ requestId, deliveryCharge, distanceKm, totalPayable }),
     });
 
     const data = await res.json();

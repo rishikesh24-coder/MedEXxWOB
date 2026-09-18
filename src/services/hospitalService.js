@@ -1711,7 +1711,7 @@ export const hospitalService = {
   // ==========================================
   // 5. DEMO PAYMENT SIMULATOR & ESCROW RELEASE
   // ==========================================
-  async processPayment({ requestId, paymentMethod = 'Razorpay Escrow Transfer', verification = null }) {
+  async processPayment({ requestId, paymentMethod = 'Razorpay Escrow Transfer', verification = null, deliveryCharge = 0, distanceKm = null, totalPayable = null }) {
     await new Promise((r) => setTimeout(r, 400));
 
     // 1. Authoritative backend payment flow
@@ -1727,7 +1727,7 @@ export const hospitalService = {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${token}`,
           },
-          body: JSON.stringify({ requestId }),
+          body: JSON.stringify({ requestId, deliveryCharge, distanceKm, totalPayable }),
         });
         const createData = await createRes.json();
 
@@ -1776,12 +1776,23 @@ export const hospitalService = {
     const paymentId = backendPayment?.id || ('pay_demo_' + Math.random().toString(36).substring(2, 11));
     const orderId = backendPayment?.providerOrderId || backendPayment?.provider_order_id || ('order_demo_' + Math.random().toString(36).substring(2, 10));
 
+    // Derive authoritative final payment amounts
+    const fee = Number(deliveryCharge || req.deliveryCharge || 0);
+    const dist = (distanceKm !== null && distanceKm !== undefined) ? Number(distanceKm) : (req.distanceKm ?? null);
+    const medAmount = Number(req.totalAmount || 0);
+    const authoritativeTotal = Number(totalPayable || (medAmount + fee));
+
     // Update Request: Accepted -> Payment Successful -> Paid (Lifecycle Stage 3)
     req.status = 'paid';
     req.paymentId = paymentId;
     req.paymentStatus = 'paid';
     req.paidDate = new Date().toISOString();
     req.paymentCompletedAt = req.paidDate;
+    req.deliveryCharge = fee;
+    if (dist !== null) {
+      req.distanceKm = dist;
+    }
+    req.finalTotalAmount = authoritativeTotal;
 
     if (!req.timeline) {
       req.timeline = [
@@ -1802,9 +1813,12 @@ export const hospitalService = {
       requestId: req.id,
       medicineName: req.medicineName,
       quantity: req.quantity,
-      amount: req.totalAmount,
-      gstAmount: req.gstAmount || Math.round(req.totalAmount * 0.12),
-      totalPaid: req.totalAmount,
+      amount: authoritativeTotal,
+      medicineAmount: medAmount,
+      deliveryCharge: fee,
+      distanceKm: dist,
+      gstAmount: req.gstAmount || Math.round(medAmount * 0.12),
+      totalPaid: authoritativeTotal,
       paymentStatus: 'Paid',
       date: new Date().toLocaleString(),
       razorpayPaymentId: paymentId + ' (Demo Simulator)',

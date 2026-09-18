@@ -25,6 +25,7 @@ import Modal from './Modal';
 import StatusBadge from './StatusBadge';
 import OrderMilestoneTracker from './OrderMilestoneTracker';
 import { formatCurrency, formatDate } from '../../utils/formatters';
+import { calculateLogisticsEstimate } from '../../config/logisticsPricing';
 
 export const OrderDetailsModal = ({
   isOpen,
@@ -53,6 +54,14 @@ export const OrderDetailsModal = ({
 
   const txnId = order.transactionId || order.orderId || order.id;
   const displayId = order.orderId ? (order.orderId.startsWith('#') ? order.orderId : `#${order.orderId}`) : `#${txnId}`;
+
+  // Centralized distance-based logistics calculation
+  const logisticsEstimate = React.useMemo(() => calculateLogisticsEstimate(order), [order]);
+  const deliveryCharge = (order.deliveryCharge !== undefined && order.deliveryCharge !== null)
+    ? Number(order.deliveryCharge)
+    : (logisticsEstimate.isAvailable ? (logisticsEstimate.deliveryCharge || 0) : 0);
+  const medicinePayable = Number(order.medicineAmount || order.totalAmount || 0);
+  const authoritativeTotal = order.finalTotalAmount ? Number(order.finalTotalAmount) : (medicinePayable + deliveryCharge);
 
   // Build or format status timeline history
   const statusHistory = React.useMemo(() => {
@@ -462,6 +471,18 @@ export const OrderDetailsModal = ({
               </span>
             </div>
           </div>
+
+          {logisticsEstimate.isAvailable && (
+            <div className="pt-2 border-t border-slate-200/60 flex items-center justify-between text-xs font-mono text-slate-600 bg-white/70 p-2.5 rounded-xl">
+              <span className="flex items-center gap-1.5">
+                <Truck className="w-3.5 h-3.5 text-teal-600" />
+                <span>Distance Estimate: <strong>{logisticsEstimate.formattedDistance}</strong></span>
+              </span>
+              <span className="text-teal-800 font-bold">
+                Estimated Delivery Charge: {logisticsEstimate.formattedCharge}
+              </span>
+            </div>
+          )}
         </div>
 
         {/* 7. PAYMENT & ESCROW SETTLEMENT SECTION (Section 12, 13, 14) */}
@@ -475,11 +496,26 @@ export const OrderDetailsModal = ({
           </div>
 
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div className="space-y-1">
+            <div className="space-y-1.5">
               <span className="text-[10px] uppercase font-mono text-slate-400 block">Total Settlement Amount</span>
               <span className="text-2xl font-mono font-black text-slate-900 block">
-                ₹{(order.settlementAmount || order.totalAmount || 0).toLocaleString()}
+                ₹{authoritativeTotal.toLocaleString()}
               </span>
+
+              {deliveryCharge > 0 && (
+                <div className="text-[11px] font-mono text-slate-500 space-y-0.5">
+                  <div className="flex items-center gap-2">
+                    <span>Medicine: ₹{medicinePayable.toLocaleString()}</span>
+                    <span>•</span>
+                    <span className="text-teal-700 font-semibold">Logistics: +₹{deliveryCharge.toLocaleString()}</span>
+                  </div>
+                  {logisticsEstimate.isAvailable && logisticsEstimate.distanceKm && (
+                    <div className="text-[10px] text-slate-400">
+                      Approx. distance: ~{logisticsEstimate.distanceKm.toLocaleString()} km
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Status breakdown */}
               {isRefunded ? (
@@ -544,19 +580,29 @@ export const OrderDetailsModal = ({
                 {isAccepted && !isPaid && !isPaymentFailed && (
                   <button
                     type="button"
-                    onClick={() => !isSuspended && onPayNow && onPayNow(order)}
+                    onClick={() => !isSuspended && onPayNow && onPayNow({
+                      ...order,
+                      deliveryCharge,
+                      distanceKm: logisticsEstimate.distanceKm,
+                      finalTotalAmount: authoritativeTotal
+                    })}
                     disabled={isSuspended}
                     className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-md shadow-emerald-600/25 transition-all hover:scale-105 cursor-pointer disabled:opacity-50"
                   >
                     <CreditCard className="w-4 h-4" />
-                    <span>Pay Now (₹{(order.settlementAmount || order.totalAmount || 0).toLocaleString()})</span>
+                    <span>Pay Now (₹{authoritativeTotal.toLocaleString()})</span>
                   </button>
                 )}
 
                 {isAccepted && isPaymentFailed && (
                   <button
                     type="button"
-                    onClick={() => !isSuspended && onRetryPayment && onRetryPayment(order)}
+                    onClick={() => !isSuspended && onRetryPayment && onRetryPayment({
+                      ...order,
+                      deliveryCharge,
+                      distanceKm: logisticsEstimate.distanceKm,
+                      finalTotalAmount: authoritativeTotal
+                    })}
                     disabled={isSuspended}
                     className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-md shadow-amber-600/25 transition-all hover:scale-105 cursor-pointer disabled:opacity-50"
                   >

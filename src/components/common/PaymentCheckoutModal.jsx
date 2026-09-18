@@ -20,8 +20,9 @@ import {
   Info
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
-import { calculateOrderPricing } from '../../utils/pricingUtils';
 import { paymentService, loadRazorpayScript } from '../../services/paymentService';
+import { calculateLogisticsEstimate } from '../../config/logisticsPricing';
+import LogisticsEstimate from './LogisticsEstimate';
 import toast from 'react-hot-toast';
 
 export const PaymentCheckoutModal = ({ 
@@ -58,21 +59,36 @@ export const PaymentCheckoutModal = ({
 
   if (!request) return null;
 
-  // Safe pricing calculation - guarantees all numeric fields are defined
-  const pricing = calculateOrderPricing({
-    unitOriginalPrice: request.unitOriginalPrice || request.unitFinalPrice || request.unitPrice || 500,
-    concessionPercent: request.concessionPercent || 0,
-    quantity: request.quantity || 1,
-    storageType: request.storageType || 'Cold Storage',
-    distanceKm: request.distanceKm || 15,
-    isColdChain: request.storageType?.toLowerCase()?.includes('cold') || request.isColdChain || false,
-  });
+  // Centralized Logistics Estimate
+  const logisticsEstimate = calculateLogisticsEstimate(request);
+  const deliveryCharge = logisticsEstimate.isAvailable ? (logisticsEstimate.deliveryCharge || 0) : 0;
 
-  const totalPayable = request.totalAmount ? Number(request.totalAmount) : (pricing.totalPayable || 0);
-  const subtotal = Number(pricing.subtotal || pricing.originalSubtotal || pricing.totalMRP || 0);
-  const concessionSavings = Number(pricing.concessionSavings || pricing.totalConcession || pricing.totalSavings || 0);
-  const logisticsFee = Number(pricing.logisticsFee || 0);
-  const gstAmount = Number(pricing.gstAmount || 0);
+  // Medicine base MRP and quantity
+  const unitMRP = Number(request.unitOriginalPrice || request.mrp || request.unitPrice || 0);
+  const quantity = Math.max(1, Number(request.quantity) || 1);
+  let medicineSubtotal = unitMRP > 0 ? unitMRP * quantity : 0;
+
+  // Concession discount from near-expiry schedule (strictly untouched)
+  let concessionSavings = 0;
+  if (request.concessionPercent && Number(request.concessionPercent) > 0) {
+    concessionSavings = Math.round((medicineSubtotal * Number(request.concessionPercent)) / 100);
+  } else if (request.unitFinalPrice && unitMRP > Number(request.unitFinalPrice)) {
+    concessionSavings = Math.round((unitMRP - Number(request.unitFinalPrice)) * quantity);
+  }
+
+  // Final medicine payable amount
+  let medicineAmount = 0;
+  if (request.totalAmount && !isNaN(request.totalAmount)) {
+    medicineAmount = Number(request.totalAmount);
+    if (medicineSubtotal <= 0) {
+      medicineSubtotal = medicineAmount + concessionSavings;
+    }
+  } else {
+    medicineAmount = Math.max(0, medicineSubtotal - concessionSavings);
+  }
+
+  // TOTAL PAYABLE = Medicine Amount + Estimated Delivery Charge
+  const totalPayable = medicineAmount + deliveryCharge;
 
   const isRazorpayConfigured = Boolean(gatewayConfig.keyId && gatewayConfig.provider === 'razorpay');
   const isTestMode = !gatewayConfig.keyId || gatewayConfig.keyId.startsWith('rzp_test') || gatewayConfig.provider === 'mock';
@@ -89,7 +105,12 @@ export const PaymentCheckoutModal = ({
 
     try {
       // 1. Authoritative Backend Order Creation
-      const order = await paymentService.createPaymentOrder({ requestId: request.id });
+      const order = await paymentService.createPaymentOrder({
+        requestId: request.id,
+        deliveryCharge,
+        distanceKm: logisticsEstimate.distanceKm,
+        totalPayable,
+      });
       setActiveGatewayOrder(order);
 
       // 2. If live/test Razorpay keys are configured on backend, launch official SDK
@@ -145,6 +166,9 @@ export const PaymentCheckoutModal = ({
                     requestId: request.id,
                     paymentMethod: `Razorpay Standard Checkout (${selectedMethod.toUpperCase()})`,
                     verification: verificationResult,
+                    deliveryCharge,
+                    distanceKm: logisticsEstimate.distanceKm,
+                    totalPayable,
                   });
                 }
 
@@ -226,6 +250,9 @@ export const PaymentCheckoutModal = ({
           requestId: request.id,
           paymentMethod: `Razorpay Sandbox (${selectedMethod.toUpperCase()} - ${selectedMethod === 'upi' ? selectedUpiApp : selectedMethod === 'netbanking' ? selectedBank : 'Test Card'})`,
           verification: verificationResult,
+          deliveryCharge,
+          distanceKm: logisticsEstimate.distanceKm,
+          totalPayable,
         });
       }
 
@@ -417,35 +444,45 @@ export const PaymentCheckoutModal = ({
               </div>
             </div>
 
-            {/* Financial Breakdown (Guaranteed Safe from undefined errors) */}
-            <div className="pt-3 border-t border-slate-200 text-xs font-mono text-slate-600 space-y-1.5">
-              <div className="flex justify-between">
-                <span>Base Subtotal ({request.quantity} × ₹{pricing.unitOriginalPrice || 500}):</span>
-                <span>₹{subtotal.toLocaleString()}</span>
+            {/* ORDER SUMMARY */}
+            <div className="pt-3 border-t border-slate-200 space-y-2">
+              <div className="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-500">
+                ORDER SUMMARY
               </div>
-
-              {concessionSavings > 0 && (
-                <div className="flex justify-between text-amber-700 font-semibold">
-                  <span>Near-Expiry Concession ({pricing.concessionPercent || 0}% Savings):</span>
-                  <span>-₹{concessionSavings.toLocaleString()}</span>
+              <div className="text-xs font-mono text-slate-600 space-y-1.5">
+                <div className="flex justify-between">
+                  <span>Medicine subtotal ({quantity} × ₹{unitMRP > 0 ? unitMRP.toLocaleString() : Math.round(medicineSubtotal / quantity).toLocaleString()}):</span>
+                  <span className="font-semibold text-slate-800">₹{medicineSubtotal.toLocaleString()}</span>
                 </div>
-              )}
 
-              {logisticsFee > 0 && (
-                <div className="flex justify-between text-cyan-700 font-semibold">
-                  <span>Cold-Chain Telematics & Transport Fee:</span>
-                  <span>+₹{logisticsFee.toLocaleString()}</span>
+                {concessionSavings > 0 && (
+                  <div className="flex justify-between text-amber-700 font-semibold">
+                    <span>Concession / savings ({request.concessionPercent ? `${request.concessionPercent}%` : 'Near-Expiry'}):</span>
+                    <span>-₹{concessionSavings.toLocaleString()}</span>
+                  </div>
+                )}
+
+                <div className="flex justify-between pt-1.5 border-t border-slate-200 font-bold text-slate-800">
+                  <span>Medicine amount:</span>
+                  <span className="text-slate-900">₹{medicineAmount.toLocaleString()}</span>
                 </div>
-              )}
-
-              <div className="flex justify-between">
-                <span>GST (12% Central/State Pharma):</span>
-                <span>+₹{gstAmount.toLocaleString()}</span>
               </div>
+            </div>
 
-              <div className="flex justify-between pt-2 border-t border-slate-300 font-bold text-slate-900 text-sm">
-                <span>Final Payable (INR):</span>
-                <span className="text-teal-700 font-extrabold">₹{totalPayable.toLocaleString()}</span>
+            {/* DELIVERY & LOGISTICS */}
+            <LogisticsEstimate estimate={logisticsEstimate} />
+
+            {/* TOTAL PAYABLE */}
+            <div className="p-3.5 bg-white rounded-xl border border-slate-300 shadow-2xs space-y-1">
+              <div className="flex justify-between items-baseline font-black text-slate-900 text-base">
+                <span>TOTAL PAYABLE:</span>
+                <span className="text-teal-700 font-black text-lg">₹{totalPayable.toLocaleString()}</span>
+              </div>
+              <div className="flex items-center justify-between text-[11px] text-slate-500 pt-0.5">
+                <span>Delivery charge is an estimated distance-based logistics cost.</span>
+                <span className="font-mono text-[10px] text-slate-400">
+                  (₹{medicineAmount.toLocaleString()} + {logisticsEstimate.isAvailable ? `₹${deliveryCharge.toLocaleString()}` : '₹0'})
+                </span>
               </div>
             </div>
           </div>
