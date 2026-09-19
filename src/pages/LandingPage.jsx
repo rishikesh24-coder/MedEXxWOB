@@ -157,7 +157,7 @@ export const LandingPage = () => {
 
           {/* SPATIAL 3D NETWORK HERO EMBED */}
           <div className="max-w-5xl mx-auto pt-4">
-            <FloatingNetworkHero />
+            <FloatingNetworkHero mode="public" />
           </div>
 
         </div>

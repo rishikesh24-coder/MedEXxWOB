@@ -32,10 +32,10 @@ import SalesBarChart from '../../components/charts/SalesBarChart';
 import ProfitabilityComboChart from '../../components/charts/ProfitabilityComboChart';
 import FloatingNetworkHero from '../../components/spatial/FloatingNetworkHero';
 import SpatialInventoryOverview from '../../components/spatial/SpatialInventoryOverview';
-import LiveSupplyNetworkMap from '../../components/spatial/LiveSupplyNetworkMap';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import { calculateMedicineExpiry } from '../../utils/expiryUtils';
 import { getLiveHospitalRecord } from '../../services/storage';
+import { getRegisteredHospitalsList } from '../../utils/networkTopologyHelper';
 
 export const HospitalDashboard = () => {
   const dispatch = useDispatch();
@@ -46,6 +46,15 @@ export const HospitalDashboard = () => {
   const [hospitalRecord, setHospitalRecord] = useState(() => 
     getLiveHospitalRecord(user?.hospitalId || user?.id) || user
   );
+
+  const verifiedPeerCount = useMemo(() => {
+    try {
+      const list = getRegisteredHospitalsList();
+      return list.length;
+    } catch {
+      return 12;
+    }
+  }, []);
 
   useEffect(() => {
     const updateRecord = () => {
@@ -300,7 +309,7 @@ export const HospitalDashboard = () => {
             <div className="pt-4 border-t border-white/10 flex flex-wrap items-center gap-6 text-xs text-slate-400 font-mono">
               <div>
                 <span className="text-[10px] uppercase text-slate-500 block">Verified Peer Nodes</span>
-                <span className="text-slate-200 font-bold">48 Hospitals Active</span>
+                <span className="text-slate-200 font-bold">{verifiedPeerCount} Hospitals Active</span>
               </div>
               <div>
                 <span className="text-[10px] uppercase text-slate-500 block">Bio-Centre Partner</span>
@@ -315,7 +324,7 @@ export const HospitalDashboard = () => {
 
           {/* Right Hero 3D Digital Logistics Network */}
           <div className="lg:col-span-6 w-full">
-            <FloatingNetworkHero />
+            <FloatingNetworkHero mode="hospital" authenticatedHospital={hospitalRecord || user} />
           </div>
 
         </div>
@@ -596,9 +605,6 @@ export const HospitalDashboard = () => {
           <ProfitabilityComboChart data={dashboardData?.profitabilityTrend} />
         </div>
       </div>
-
-      {/* 6. LIVE SUPPLY NETWORK COMPONENT */}
-      <LiveSupplyNetworkMap />
 
     </div>
   );
