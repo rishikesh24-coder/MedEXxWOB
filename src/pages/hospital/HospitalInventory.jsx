@@ -27,7 +27,8 @@ import {
   Layers,
   Upload,
   ExternalLink,
-  ChevronDown
+  ChevronDown,
+  ShoppingBag
 } from 'lucide-react';
 import { 
   fetchInventory, 
@@ -853,16 +854,49 @@ export const HospitalInventory = () => {
         </div>
 
         {/* Card 5: Low Stock */}
-        <div className="bg-white p-4 rounded-2xl border border-blue-200/80 bg-blue-50/20 shadow-sm space-y-1 col-span-2 sm:col-span-1">
-          <span className="text-[11px] font-bold uppercase tracking-wider text-blue-800 block">
-            Low Stock
-          </span>
-          <div className="text-2xl font-black text-blue-700 font-mono">
-            {metrics.lowStockCount} <span className="text-xs font-normal text-blue-500">batches</span>
+        <div 
+          className="p-4 rounded-2xl border border-rose-200/90 bg-rose-50/30 shadow-sm col-span-2 sm:col-span-1 flex flex-col justify-between space-y-2.5 relative transition-all"
+          title="Low stock means the available quantity is below the recommended stock level for this medicine."
+        >
+          <div className="space-y-1.5">
+            {/* Top Row: Badge & Warning Icon */}
+            <div className="flex items-center justify-between">
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-rose-100 text-rose-700 border border-rose-200">
+                Low Stock
+              </span>
+              <div className="w-6 h-6 rounded-lg bg-rose-100 text-rose-600 flex items-center justify-center">
+                <AlertTriangle className="w-3.5 h-3.5" />
+              </div>
+            </div>
+
+            {/* Main Number & Quantity */}
+            <div className="pt-0.5">
+              <div className="text-2xl font-black text-slate-900 font-mono tracking-tight">
+                {metrics.lowStockCount} <span className="text-xs font-normal text-slate-500 font-sans">batches</span>
+              </div>
+              <p className="text-xs font-bold text-slate-900 mt-0.5">
+                Medicines running low
+              </p>
+              <p className="text-[11px] text-slate-500 font-medium leading-tight">
+                Current stock is below the recommended level
+              </p>
+            </div>
           </div>
-          <p className="text-[11px] text-blue-600 font-medium">
-            Below safety buffer level
-          </p>
+
+          {/* Bottom Action Panel */}
+          <div className="pt-2 border-t border-rose-100/90 bg-rose-50/60 -mx-4 -mb-4 px-4 py-2.5 rounded-b-2xl flex items-center justify-between gap-2">
+            <div className="space-y-0.5">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-rose-700 block">
+                Action needed
+              </span>
+              <p className="text-[11px] font-medium text-rose-900 leading-tight">
+                Restock soon to avoid shortage
+              </p>
+            </div>
+            <div className="w-6 h-6 rounded-lg bg-rose-100/80 text-rose-600 flex items-center justify-center shrink-0">
+              <ShoppingBag className="w-3.5 h-3.5" />
+            </div>
+          </div>
         </div>
 
       </div>

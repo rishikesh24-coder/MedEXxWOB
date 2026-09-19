@@ -121,7 +121,7 @@ export const AdminLayout = () => {
         </div>
 
         {/* Main Content */}
-        <main className="flex-1 p-4 sm:p-6 lg:p-7 overflow-y-auto">
+        <main className="flex-1 min-w-0 p-4 sm:p-6 lg:p-7 overflow-y-auto">
           {/* Global In-App Back/Forward Controls */}
           <div className="mb-3 sm:mb-4 flex items-center justify-between">
             <PortalHistoryNavigation portal="admin" />

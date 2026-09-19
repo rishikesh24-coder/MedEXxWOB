@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useSelector, useDispatch } from 'react-redux';
 import { 
@@ -93,6 +94,24 @@ export const Navbar = () => {
     toast.success('Logged out successfully. Secure session terminated.');
     navigate('/');
   };
+
+  // Lock body scroll and handle Escape key for modals mounted outside header
+  useEffect(() => {
+    if (!showLogoutConfirm && !editProfileOpen) return;
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        setShowLogoutConfirm(false);
+        setEditProfileOpen(false);
+      }
+    };
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.body.style.overflow = originalOverflow;
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [showLogoutConfirm, editProfileOpen]);
 
 
   const openEditProfile = () => {
@@ -416,12 +435,12 @@ export const Navbar = () => {
                   </div>
                 )}
 
-                {editProfileOpen && role === 'hospital' && (
-                  <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/40 p-4" onClick={() => setEditProfileOpen(false)}>
+                {editProfileOpen && role === 'hospital' && typeof document !== 'undefined' && createPortal(
+                  <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/60 backdrop-blur-sm p-4 animate-fadeIn" onClick={() => setEditProfileOpen(false)}>
                     <form
                       onSubmit={handleSaveProfile}
                       onClick={(event) => event.stopPropagation()}
-                      className="w-full max-w-lg rounded-2xl bg-white shadow-2xl border border-slate-200 overflow-hidden"
+                      className="w-full max-w-lg rounded-2xl bg-white shadow-2xl border border-slate-200 overflow-hidden animate-scaleUp my-auto"
                     >
                       <div className="flex items-start justify-between px-5 py-4 border-b border-slate-100">
                         <div>
@@ -460,7 +479,8 @@ export const Navbar = () => {
                         <button type="submit" className="px-3.5 py-2 rounded-xl bg-primary-600 text-xs font-bold text-white hover:bg-primary-700">Save Changes</button>
                       </div>
                     </form>
-                  </div>
+                  </div>,
+                  document.body
                 )}
               </div>
             ) : (
@@ -563,15 +583,15 @@ export const Navbar = () => {
           </div>
         </div>
       )}
-      {/* Logout Confirmation Modal */}
-      {showLogoutConfirm && (
+      {/* Logout Confirmation Modal (Portaled to document.body to avoid header containing-block clipping) */}
+      {showLogoutConfirm && typeof document !== 'undefined' && createPortal(
         <div 
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-4 animate-fadeIn"
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/60 backdrop-blur-sm p-4 animate-fadeIn"
           onClick={() => setShowLogoutConfirm(false)}
         >
           <div 
             onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-sm rounded-3xl bg-white shadow-2xl border border-slate-200 p-6 text-center space-y-4 font-sans"
+            className="w-full max-w-sm rounded-3xl bg-white shadow-2xl border border-slate-200 p-6 text-center space-y-4 font-sans animate-scaleUp my-auto"
           >
             <div className="w-12 h-12 rounded-2xl bg-rose-50 border border-rose-200 text-rose-600 flex items-center justify-center mx-auto shadow-xs">
               <LogOut className="w-6 h-6" />
@@ -599,7 +619,8 @@ export const Navbar = () => {
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </header>
   );

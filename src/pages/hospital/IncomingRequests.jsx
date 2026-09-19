@@ -774,7 +774,7 @@ export default function IncomingRequests() {
                           }
                           title="View request details"
                         >
-                          <Eye size={16} />
+                          <Eye size={13} />
                           View
                         </button>
 
@@ -792,7 +792,7 @@ export default function IncomingRequests() {
                               }
                               title="Approve request"
                             >
-                              <CheckCircle size={16} />
+                              <CheckCircle size={13} />
                               Approve
                             </button>
 
@@ -808,7 +808,7 @@ export default function IncomingRequests() {
                               }
                               title="Reject request"
                             >
-                              <XCircle size={16} />
+                              <XCircle size={13} />
                               Reject
                             </button>
                           </>
