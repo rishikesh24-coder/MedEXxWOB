@@ -43,6 +43,9 @@ export const authService = {
         }
         throw new Error(data.error.message || 'Login failed');
       }
+      if (!response.ok) {
+        throw new Error(data?.message || 'Invalid credentials or inactive account.');
+      }
     } catch (networkOrApiErr) {
       if (['PENDING_ADMIN_APPROVAL', 'REGISTRATION_REJECTED', 'HOSPITAL_SUSPENDED'].includes(networkOrApiErr.code)) {
         throw networkOrApiErr;
@@ -250,6 +253,9 @@ export const authService = {
 
       if (data?.error) {
         throw new Error(data.error.message || 'Registration failed');
+      }
+      if (!response.ok) {
+        throw new Error(data?.message || 'Registration failed. Please verify form details.');
       }
     } catch (apiErr) {
       if (apiErr.message && !apiErr.message.includes('fetch') && !apiErr.message.includes('NetworkError') && !apiErr.message.includes('Failed to fetch')) {
