@@ -316,11 +316,11 @@ export const TrackPage = () => {
           <button
             type="button"
             onClick={handleRefresh}
-            disabled={isRefreshing}
+            disabled={isRefreshing || isLoading}
             className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold transition-all shadow-xs cursor-pointer disabled:opacity-60"
           >
-            <RefreshCw className={`w-4 h-4 text-slate-500 ${isRefreshing ? 'animate-spin' : ''}`} />
-            <span>Refresh Telemetry</span>
+            <RefreshCw className={`w-4 h-4 text-slate-500 ${isRefreshing || isLoading ? 'animate-spin' : ''}`} />
+            <span>{isRefreshing || isLoading ? 'Refreshing...' : 'Refresh Telemetry'}</span>
           </button>
         </div>
       </div>
@@ -404,7 +404,12 @@ export const TrackPage = () => {
           
           <div className="space-y-2">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/15 backdrop-blur-md text-xs font-black uppercase tracking-wider">
-              {isDelivered ? (
+              {isLoading ? (
+                <>
+                  <RefreshCw className="w-4 h-4 text-white animate-spin" />
+                  <span>SYNCHRONIZING TELEMETRY</span>
+                </>
+              ) : isDelivered ? (
                 <>
                   <Check className="w-4 h-4 text-white" />
                   <span>DELIVERED & VERIFIED</span>

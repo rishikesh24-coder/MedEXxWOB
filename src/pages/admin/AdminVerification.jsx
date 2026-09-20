@@ -641,11 +641,24 @@ export const AdminVerification = () => {
           </div>
         ) : (
           <div className="px-6 py-14 text-center text-slate-400">
-            <FileCheck2 className="w-10 h-10 mx-auto mb-2 opacity-40" />
+            <FileCheck2 className="w-10 h-10 mx-auto mb-2 opacity-40 text-slate-400" />
             <p className="font-bold text-slate-700 text-sm">
               No applications in the {activeTab === 'verified' || activeTab === 'approved' ? 'approved' : activeTab.replace('_', ' ')} queue
             </p>
             <p className="text-xs text-slate-400 mt-1">Select a different status filter or clear your search query.</p>
+            {(searchTerm || activeTab !== 'pending') && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchTerm('');
+                  setActiveTab('pending');
+                  setSearchParams({ tab: 'pending' });
+                }}
+                className="mt-3 px-3.5 py-1.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold transition-all cursor-pointer shadow-xs"
+              >
+                Reset to Pending Queue
+              </button>
+            )}
           </div>
         )}
       </div>

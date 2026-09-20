@@ -251,6 +251,15 @@ export const AdminManagement = () => {
                     <td colSpan="6" className="px-6 py-14 text-center text-slate-400">
                       <Truck className="w-8 h-8 mx-auto mb-2 opacity-40" />
                       <p className="font-bold text-slate-700">No transfers found matching your query</p>
+                      {searchTerm && (
+                        <button
+                          type="button"
+                          onClick={() => setSearchTerm('')}
+                          className="mt-3 px-3 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold transition-all cursor-pointer shadow-xs"
+                        >
+                          Clear Search Filter
+                        </button>
+                      )}
                     </td>
                   </tr>
                 )}
@@ -338,6 +347,15 @@ export const AdminManagement = () => {
                     <td colSpan="6" className="px-6 py-14 text-center text-slate-400">
                       <Trash2 className="w-8 h-8 mx-auto mb-2 opacity-40" />
                       <p className="font-bold text-slate-700">No bio-hazard disposal records recorded</p>
+                      {searchTerm && (
+                        <button
+                          type="button"
+                          onClick={() => setSearchTerm('')}
+                          className="mt-3 px-3 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold transition-all cursor-pointer shadow-xs"
+                        >
+                          Clear Search Filter
+                        </button>
+                      )}
                     </td>
                   </tr>
                 )}

@@ -24,6 +24,7 @@ import { fetchPaymentHistory } from '../../store/slices/hospitalSlice';
 import StatusBadge from '../../components/common/StatusBadge';
 import ReceiptModal from '../../components/common/ReceiptModal';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
+import EmptyState from '../../components/common/EmptyState';
 import toast from 'react-hot-toast';
 
 export const PaymentHistory = () => {
@@ -354,15 +355,29 @@ export const PaymentHistory = () => {
             <LoadingSpinner text="Loading payment records..." />
           </div>
         ) : filteredPayments.length === 0 ? (
-          <div className="p-12 text-center space-y-3">
-            <Receipt className="w-12 h-12 text-slate-300 mx-auto" />
-            <h3 className="text-base font-bold text-slate-800">
-              No payments yet.
-            </h3>
-            <p className="text-xs text-slate-500 max-w-sm mx-auto">
-              Your medicine purchase payments will appear here once orders are confirmed and settled.
-            </p>
-          </div>
+          payments.length === 0 ? (
+            <EmptyState
+              icon={Receipt}
+              title="No payment records found"
+              description="Your medicine purchase payments will appear here once orders are confirmed and settled."
+              impact="All platform transactions use an automated escrow ledger for audit-grade accountability."
+              actionLabel="Browse Marketplace"
+              actionTo="/hospital/marketplace"
+              secondaryActionLabel="View My Requests"
+              secondaryActionTo="/hospital/my-requests"
+            />
+          ) : (
+            <EmptyState
+              icon={Filter}
+              title="No payments match your filter"
+              description="There are no payment transactions matching the selected search query or status filter."
+              actionLabel="Clear Filters"
+              onAction={() => {
+                setSearchTerm('');
+                setStatusFilter('ALL');
+              }}
+            />
+          )
         ) : (
           <>
             {/* Desktop Table View */}

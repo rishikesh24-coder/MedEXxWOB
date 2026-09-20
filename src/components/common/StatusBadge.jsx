@@ -47,8 +47,8 @@ export const StatusBadge = ({ status, className = '', showIcon = true }) => {
     );
   }
 
-  // AMBER/ORANGE: disposal requested / pending disposal / near expiry / expiring soon / low stock / attention / payment pending / requested / pending approval
-  if (['requested', 'disposal requested', 'disposal_requested', 'pending_disposal', 'pending disposal', 'expiring soon', 'expiring_soon', 'near expiry', 'near-expiry', 'low stock', 'low-stock', 'low_stock', 'pending', 'pending_approval', 'pending approval', 'pending admin approval', 'payment pending', 'payment_pending', 'reported', 'quarantine', 'in transit to bio-centre', 'documents_missing', 'documents missing'].includes(normalized)) {
+  // AMBER/ORANGE: disposal requested / pending disposal / near expiry / expiring soon / low stock / attention / payment pending / requested / pending approval / unverified
+  if (['requested', 'disposal requested', 'disposal_requested', 'pending_disposal', 'pending disposal', 'expiring soon', 'expiring_soon', 'near expiry', 'near-expiry', 'low stock', 'low-stock', 'low_stock', 'pending', 'pending_approval', 'pending approval', 'pending admin approval', 'payment pending', 'payment_pending', 'reported', 'quarantine', 'in transit to bio-centre', 'documents_missing', 'documents missing', 'unverified', 'pending verification', 'pending_verification', 'requires attention', 'requires_attention', 'attention'].includes(normalized)) {
     let displayLabel = status;
     if (normalized === 'pending' || normalized === 'pending_approval' || normalized === 'pending approval') displayLabel = 'Pending Approval';
     if (normalized === 'pending admin approval') displayLabel = 'Pending Admin Approval';
@@ -57,6 +57,9 @@ export const StatusBadge = ({ status, className = '', showIcon = true }) => {
     if (normalized === 'low-stock' || normalized === 'low_stock') displayLabel = 'Low Stock';
     if (normalized === 'pending_disposal') displayLabel = 'Disposal Requested';
     if (normalized === 'payment pending' || normalized === 'payment_pending') displayLabel = 'Payment Pending';
+    if (normalized === 'unverified') displayLabel = 'Unverified';
+    if (normalized === 'pending verification' || normalized === 'pending_verification') displayLabel = 'Pending Verification';
+    if (normalized === 'requires attention' || normalized === 'requires_attention') displayLabel = 'Requires Attention';
 
     return (
       <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-50 text-amber-800 border border-amber-200/90 ${className}`}>

@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # MedEx — National Inter-Hospital Medicine Redistribution & Logistics Platform
 
 [![Production CI](https://github.com/medex/medex-core/actions/workflows/ci.yml/badge.svg)](https://github.com/medex/medex-core/actions/workflows/ci.yml)
@@ -227,6 +226,3 @@ docker build -t medex-platform:latest .
 # Run container
 docker run -p 5000:5000 --env-file backend/.env medex-platform:latest
 ```
-=======
-# MedEXWOB
->>>>>>> 81976a08cf32e88fff9ec649f4f27938976187b5

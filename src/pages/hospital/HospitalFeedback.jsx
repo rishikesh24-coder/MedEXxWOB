@@ -15,6 +15,8 @@ import {
   HelpCircle
 } from 'lucide-react';
 import { submitHospitalFeedback, fetchHospitalFeedbacks } from '../../store/slices/hospitalSlice';
+import EmptyState from '../../components/common/EmptyState';
+import LoadingSpinner from '../../components/common/LoadingSpinner';
 import toast from 'react-hot-toast';
 
 export const HospitalFeedback = () => {
@@ -187,9 +189,14 @@ export const HospitalFeedback = () => {
 
             {/* Comments */}
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">
-                Detailed Review & Operational Feedback <span className="text-rose-500">*</span>
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs font-bold text-slate-700">
+                  Detailed Review & Operational Feedback <span className="text-rose-500">*</span>
+                </label>
+                <span className="text-[10px] text-slate-400 font-mono">
+                  {feedbackText.length} characters
+                </span>
+              </div>
               <textarea
                 rows="4"
                 required
@@ -203,9 +210,9 @@ export const HospitalFeedback = () => {
             <button
               type="submit"
               disabled={isSubmitting}
-              className="w-full py-2.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold shadow-md shadow-teal-600/20 transition-all flex items-center justify-center gap-2 disabled:opacity-75"
+              className="w-full py-2.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold shadow-md shadow-teal-600/20 transition-all flex items-center justify-center gap-2 disabled:opacity-75 cursor-pointer"
             >
-              <Send className="w-3.5 h-3.5" />
+              <Send className={`w-3.5 h-3.5 ${isSubmitting ? 'animate-spin' : ''}`} />
               <span>{isSubmitting ? 'Recording Feedback...' : 'Submit Institutional Review'}</span>
             </button>
           </form>
@@ -230,8 +237,20 @@ export const HospitalFeedback = () => {
             <span className="text-xs text-slate-400 font-mono font-medium">{feedbacks.length} Verified Entries</span>
           </div>
 
-          <div className="space-y-3">
-            {feedbacks.map((fb) => (
+          {isLoading && feedbacks.length === 0 ? (
+            <div className="py-16 text-center bg-white rounded-2xl border border-slate-200/80 shadow-sm">
+              <LoadingSpinner text="Retrieving verified peer feedback..." />
+            </div>
+          ) : feedbacks.length === 0 ? (
+            <EmptyState
+              icon={MessageSquare}
+              title="No institutional reviews yet"
+              description="Be the first to submit feedback regarding partner hospital transfers, logistics SLAs, or platform capabilities."
+              impact="Every verified review directly influences peer trust scores and national logistics routing priority."
+            />
+          ) : (
+            <div className="space-y-3">
+              {feedbacks.map((fb) => (
               <div
                 key={fb.id}
                 className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-sm space-y-3 hover:border-slate-300 transition-all"
@@ -284,6 +303,7 @@ export const HospitalFeedback = () => {
               </div>
             ))}
           </div>
+          )}
         </div>
 
       </div>

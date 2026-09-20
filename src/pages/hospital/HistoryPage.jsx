@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
 import { 
   History, 
@@ -234,8 +235,29 @@ export const HistoryPage = () => {
                 ) : (
                   <tr>
                     <td colSpan="7" className="px-6 py-12 text-center text-slate-400">
-                      <History className="w-10 h-10 mx-auto mb-2 opacity-40" />
+                      <History className="w-10 h-10 mx-auto mb-2 opacity-40 text-slate-400" />
                       <p className="font-bold text-sm text-slate-700">No trade ledger records found in this range</p>
+                      <p className="text-xs text-slate-400 mt-1">Adjust your date range or explore active marketplace lots.</p>
+                      <div className="mt-3 flex items-center justify-center gap-2">
+                        {(startDate || endDate) && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setStartDate('');
+                              setEndDate('');
+                            }}
+                            className="px-3 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold transition-all cursor-pointer"
+                          >
+                            Reset Dates
+                          </button>
+                        )}
+                        <Link
+                          to="/hospital/marketplace"
+                          className="px-3 py-1.5 rounded-lg bg-primary-600 hover:bg-primary-700 text-white text-xs font-bold transition-all cursor-pointer"
+                        >
+                          Browse Marketplace
+                        </Link>
+                      </div>
                     </td>
                   </tr>
                 )}

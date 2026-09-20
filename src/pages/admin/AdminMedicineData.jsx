@@ -354,6 +354,19 @@ export const AdminMedicineData = () => {
             <p className="text-xs text-slate-400 max-w-sm mx-auto">
               Try adjusting your search keyword or clearing the category and dosage form filters.
             </p>
+            {(searchTerm || categoryFilter !== 'all' || dosageFormFilter !== 'all') && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchTerm('');
+                  setCategoryFilter('all');
+                  setDosageFormFilter('all');
+                }}
+                className="mt-2 px-3.5 py-1.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold transition-all cursor-pointer shadow-xs"
+              >
+                Clear Master Catalogue Filters
+              </button>
+            )}
           </div>
         ) : (
           <div className="w-full">

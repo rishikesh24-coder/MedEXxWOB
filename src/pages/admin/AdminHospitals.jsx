@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { fetchHospitals } from '../../store/slices/adminSlice';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
+import EmptyState from '../../components/common/EmptyState';
 import { getStoredItem, KEYS } from '../../services/storage';
 
 export const AdminHospitals = () => {
@@ -523,6 +524,19 @@ export const AdminHospitals = () => {
                       <Building2 className="w-8 h-8 mx-auto mb-2 opacity-40" />
                       <p className="font-bold text-slate-700">No approved hospitals match your filter</p>
                       <p className="text-xs text-slate-400 mt-1">Try clearing your search query or location filter.</p>
+                      {(searchTerm || locationFilter !== 'all' || activityFilter !== 'all') && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSearchTerm('');
+                            setLocationFilter('all');
+                            setActivityFilter('all');
+                          }}
+                          className="mt-3 px-3 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold transition-all cursor-pointer"
+                        >
+                          Clear Filters
+                        </button>
+                      )}
                     </td>
                   </tr>
                 )}
@@ -530,6 +544,18 @@ export const AdminHospitals = () => {
             </table>
           </div>
         </div>
+      ) : filteredHospitals.length === 0 ? (
+        <EmptyState
+          icon={Building2}
+          title="No approved hospitals match your filter"
+          description="Try clearing your search query or location filter to view all verified network hospitals."
+          actionLabel="Clear Filters"
+          onAction={() => {
+            setSearchTerm('');
+            setLocationFilter('all');
+            setActivityFilter('all');
+          }}
+        />
       ) : (
         /* CARD GRID VIEW */
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5">
