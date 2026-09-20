@@ -110,7 +110,7 @@ export const AdminFeedback = () => {
       setSelectedFeedback((prev) => ({ ...prev, status: newStatus }));
       dispatch(fetchAdminFeedbacks('all'));
     } catch (err) {
-      toast.error('Failed to update feedback status');
+      toast.error(err?.message || err || 'Failed to update feedback status');
     }
   };
 
@@ -133,7 +133,7 @@ export const AdminFeedback = () => {
       dispatch(fetchAdminFeedbacks('all'));
     } catch (err) {
       setIsSubmittingReply(false);
-      toast.error('Failed to dispatch reply');
+      toast.error(err?.message || err || 'Failed to dispatch reply');
     }
   };
 

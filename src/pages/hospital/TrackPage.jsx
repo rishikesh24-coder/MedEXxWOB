@@ -132,8 +132,8 @@ export const TrackPage = () => {
       const currentMeds = getStoredItem(KEYS.MEDICINES, []);
       const newLot = {
         id: `med-recv-${Date.now()}`,
-        hospitalId: user?.id || 'hosp-1',
-        hospitalName: user?.name || 'Apollo Hospital Central Pharmacy',
+        hospitalId: user?.hospitalId || user?.id || null,
+        hospitalName: user?.hospitalName || user?.name || 'Hospital Pharmacy',
         brandName: tracking.medicineName || 'Received Medicine Lot',
         genericName: 'Verified Transferred Stock',
         batchNo: `TRF-${Math.floor(1000 + Math.random() * 9000)}`,

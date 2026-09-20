@@ -95,19 +95,57 @@ export const AdminReports = () => {
     );
   }
 
-  // Visual data mappings
+  // Visual data mappings with safe defaults
+  const hospitals = reports?.hospitals || {
+    total: 0,
+    verified: 0,
+    newRegistrations: 0,
+    suspended: 0,
+    rejected: 0,
+  };
+
+  const medicines = reports?.medicines || {
+    total: 0,
+    lowStock: 0,
+    outOfStock: 0,
+    expired: 0,
+    expiringSoon: 0,
+    mostRequested: [],
+  };
+
+  const orders = reports?.orders || {
+    total: 0,
+    daily: 0,
+    weekly: 0,
+    monthly: 0,
+    hospitalWise: [],
+  };
+
+  const feedback = reports?.feedback || {
+    total: 0,
+    resolved: 0,
+    unresolved: 0,
+    averageRating: '0.0',
+    categoryWise: [],
+  };
+
   const hospitalData = [
-    { name: 'Verified', count: reports.hospitals.verified, color: '#0A6E79' },
-    { name: 'Pending Review', count: reports.hospitals.newRegistrations, color: '#F59E0B' },
-    { name: 'Suspended', count: reports.hospitals.suspended, color: '#64748B' },
-    { name: 'Rejected', count: reports.hospitals.rejected, color: '#EF4444' },
+    { name: 'Verified', count: hospitals.verified ?? 0, color: '#0A6E79' },
+    { name: 'Pending Review', count: hospitals.newRegistrations ?? 0, color: '#F59E0B' },
+    { name: 'Suspended', count: hospitals.suspended ?? 0, color: '#64748B' },
+    { name: 'Rejected', count: hospitals.rejected ?? 0, color: '#EF4444' },
   ];
 
+  const inStockMedicines = Math.max(
+    0,
+    (medicines.total ?? 0) - (medicines.lowStock ?? 0) - (medicines.outOfStock ?? 0) - (medicines.expired ?? 0)
+  );
+
   const medicineStatusData = [
-    { name: 'In Stock', count: reports.medicines.total - reports.medicines.lowStock - reports.medicines.outOfStock - reports.medicines.expired, color: '#10B981' },
-    { name: 'Low Stock', count: reports.medicines.lowStock, color: '#F59E0B' },
-    { name: 'Out of Stock', count: reports.medicines.outOfStock, color: '#EF4444' },
-    { name: 'Expired', count: reports.medicines.expired, color: '#881337' },
+    { name: 'In Stock', count: inStockMedicines, color: '#10B981' },
+    { name: 'Low Stock', count: medicines.lowStock ?? 0, color: '#F59E0B' },
+    { name: 'Out of Stock', count: medicines.outOfStock ?? 0, color: '#EF4444' },
+    { name: 'Expired', count: medicines.expired ?? 0, color: '#881337' },
   ];
 
   return (
@@ -202,38 +240,38 @@ export const AdminReports = () => {
             </div>
           </div>
           <span className="px-2.5 py-1 rounded-full text-xs font-mono font-bold bg-teal-50 text-teal-800">
-            {reports.hospitals.total} Institutions
+            {hospitals.total ?? 0} Institutions
           </span>
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
           <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80 space-y-0.5">
             <div className="text-[10px] font-bold uppercase text-slate-400">Total Hospitals</div>
-            <div className="text-xl font-black text-slate-900 font-mono">{reports.hospitals.total}</div>
+            <div className="text-xl font-black text-slate-900 font-mono">{hospitals.total ?? 0}</div>
             <div className="text-[10px] text-slate-500">Registered facilities</div>
           </div>
 
           <div className="p-3.5 rounded-xl bg-teal-50/50 border border-teal-200/80 space-y-0.5">
             <div className="text-[10px] font-bold uppercase text-teal-700">Verified Hospitals</div>
-            <div className="text-xl font-black text-teal-800 font-mono">{reports.hospitals.verified}</div>
+            <div className="text-xl font-black text-teal-800 font-mono">{hospitals.verified ?? 0}</div>
             <div className="text-[10px] text-teal-600">Active trading accounts</div>
           </div>
 
           <div className="p-3.5 rounded-xl bg-amber-50/50 border border-amber-200/80 space-y-0.5">
             <div className="text-[10px] font-bold uppercase text-amber-700">New / Pending</div>
-            <div className="text-xl font-black text-amber-800 font-mono">{reports.hospitals.newRegistrations}</div>
+            <div className="text-xl font-black text-amber-800 font-mono">{hospitals.newRegistrations ?? 0}</div>
             <div className="text-[10px] text-amber-600">Awaiting Form 20B/21B</div>
           </div>
 
           <div className="p-3.5 rounded-xl bg-red-50/50 border border-red-200/80 space-y-0.5">
             <div className="text-[10px] font-bold uppercase text-red-700">Rejected</div>
-            <div className="text-xl font-black text-red-800 font-mono">{reports.hospitals.rejected}</div>
+            <div className="text-xl font-black text-red-800 font-mono">{hospitals.rejected ?? 0}</div>
             <div className="text-[10px] text-red-600">Non-compliant audits</div>
           </div>
 
           <div className="p-3.5 rounded-xl bg-slate-100 border border-slate-300/80 space-y-0.5">
             <div className="text-[10px] font-bold uppercase text-slate-600">Suspended</div>
-            <div className="text-xl font-black text-slate-800 font-mono">{reports.hospitals.suspended}</div>
+            <div className="text-xl font-black text-slate-800 font-mono">{hospitals.suspended ?? 0}</div>
             <div className="text-[10px] text-slate-500">Revoked privileges</div>
           </div>
         </div>
@@ -271,38 +309,38 @@ export const AdminReports = () => {
             </div>
           </div>
           <span className="px-2.5 py-1 rounded-full text-xs font-mono font-bold bg-teal-50 text-teal-800">
-            {reports.medicines.total} Batches Listed
+            {medicines.total ?? 0} Batches Listed
           </span>
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
           <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80 space-y-0.5">
             <div className="text-[10px] font-bold uppercase text-slate-400">Total Medicines</div>
-            <div className="text-xl font-black text-slate-900 font-mono">{reports.medicines.total}</div>
+            <div className="text-xl font-black text-slate-900 font-mono">{medicines.total ?? 0}</div>
             <div className="text-[10px] text-slate-500">Active formulary items</div>
           </div>
 
           <div className="p-3.5 rounded-xl bg-amber-50/50 border border-amber-200/80 space-y-0.5">
             <div className="text-[10px] font-bold uppercase text-amber-700">Low Stock</div>
-            <div className="text-xl font-black text-amber-800 font-mono">{reports.medicines.lowStock}</div>
+            <div className="text-xl font-black text-amber-800 font-mono">{medicines.lowStock ?? 0}</div>
             <div className="text-[10px] text-amber-600">Below min threshold</div>
           </div>
 
           <div className="p-3.5 rounded-xl bg-red-50/50 border border-red-200/80 space-y-0.5">
             <div className="text-[10px] font-bold uppercase text-red-700">Out of Stock</div>
-            <div className="text-xl font-black text-red-800 font-mono">{reports.medicines.outOfStock}</div>
+            <div className="text-xl font-black text-red-800 font-mono">{medicines.outOfStock ?? 0}</div>
             <div className="text-[10px] text-red-600">0 balance emergency</div>
           </div>
 
           <div className="p-3.5 rounded-xl bg-rose-50/50 border border-rose-200/80 space-y-0.5">
             <div className="text-[10px] font-bold uppercase text-rose-700">Expired Medicines</div>
-            <div className="text-xl font-black text-rose-800 font-mono">{reports.medicines.expired}</div>
+            <div className="text-xl font-black text-rose-800 font-mono">{medicines.expired ?? 0}</div>
             <div className="text-[10px] text-rose-600">Quarantined regulatory hold</div>
           </div>
 
           <div className="p-3.5 rounded-xl bg-orange-50/50 border border-orange-200/80 space-y-0.5">
             <div className="text-[10px] font-bold uppercase text-orange-700">Expiring Soon</div>
-            <div className="text-xl font-black text-orange-800 font-mono">{reports.medicines.expiringSoon}</div>
+            <div className="text-xl font-black text-orange-800 font-mono">{medicines.expiringSoon ?? 0}</div>
             <div className="text-[10px] text-orange-600">Shelf life &lt; 60 days</div>
           </div>
         </div>
@@ -322,24 +360,32 @@ export const AdminReports = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 font-medium">
-                {reports.medicines.mostRequested?.map((med, idx) => (
-                  <tr key={idx} className="hover:bg-slate-50/50">
-                    <td className="py-2.5 px-3 font-bold text-slate-800">
-                      <div className="flex items-center gap-2">
-                        <span className="w-5 h-5 rounded-full bg-teal-100 text-teal-800 flex items-center justify-center text-[10px] font-mono">
-                          {idx + 1}
-                        </span>
-                        <span>{med.name}</span>
-                      </div>
-                    </td>
-                    <td className="py-2.5 px-3 text-right font-mono font-bold text-slate-900">
-                      {med.units} units
-                    </td>
-                    <td className="py-2.5 px-3 text-right font-mono text-emerald-600 font-bold">
-                      98.4%
+                {(!medicines.mostRequested || medicines.mostRequested.length === 0) ? (
+                  <tr>
+                    <td colSpan={3} className="py-4 text-center text-slate-400 font-medium">
+                      No formulary requisition data available for this timeframe
                     </td>
                   </tr>
-                ))}
+                ) : (
+                  medicines.mostRequested.map((med, idx) => (
+                    <tr key={idx} className="hover:bg-slate-50/50">
+                      <td className="py-2.5 px-3 font-bold text-slate-800">
+                        <div className="flex items-center gap-2">
+                          <span className="w-5 h-5 rounded-full bg-teal-100 text-teal-800 flex items-center justify-center text-[10px] font-mono">
+                            {idx + 1}
+                          </span>
+                          <span>{med.name}</span>
+                        </div>
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-mono font-bold text-slate-900">
+                        {med.units} units
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-mono text-emerald-600 font-bold">
+                        98.4%
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
@@ -359,32 +405,32 @@ export const AdminReports = () => {
             </div>
           </div>
           <span className="px-2.5 py-1 rounded-full text-xs font-mono font-bold bg-teal-50 text-teal-800">
-            {reports.orders.total} Total Orders
+            {orders.total ?? 0} Total Orders
           </span>
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80 space-y-0.5">
             <div className="text-[10px] font-bold uppercase text-slate-400">Daily Average</div>
-            <div className="text-xl font-black text-slate-900 font-mono">{reports.orders.daily}</div>
+            <div className="text-xl font-black text-slate-900 font-mono">{orders.daily ?? 0}</div>
             <div className="text-[10px] text-slate-500">Orders per day</div>
           </div>
 
           <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80 space-y-0.5">
             <div className="text-[10px] font-bold uppercase text-slate-400">Weekly Requisitions</div>
-            <div className="text-xl font-black text-slate-900 font-mono">{reports.orders.weekly}</div>
+            <div className="text-xl font-black text-slate-900 font-mono">{orders.weekly ?? 0}</div>
             <div className="text-[10px] text-slate-500">Avg past 7 days</div>
           </div>
 
           <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80 space-y-0.5">
             <div className="text-[10px] font-bold uppercase text-slate-400">Monthly Volume</div>
-            <div className="text-xl font-black text-slate-900 font-mono">{reports.orders.monthly}</div>
+            <div className="text-xl font-black text-slate-900 font-mono">{orders.monthly ?? 0}</div>
             <div className="text-[10px] text-slate-500">Rolling 30 days</div>
           </div>
 
           <div className="p-3.5 rounded-xl bg-teal-50/60 border border-teal-200/80 space-y-0.5">
             <div className="text-[10px] font-bold uppercase text-teal-700">Total Lifetime</div>
-            <div className="text-xl font-black text-teal-800 font-mono">{reports.orders.total}</div>
+            <div className="text-xl font-black text-teal-800 font-mono">{orders.total ?? 0}</div>
             <div className="text-[10px] text-teal-600">Requisitions ledger</div>
           </div>
         </div>
@@ -395,17 +441,23 @@ export const AdminReports = () => {
             Hospital-wise Requisition Volumes
           </h4>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {reports.orders.hospitalWise?.slice(0, 6).map((hosp, idx) => (
-              <div key={idx} className="p-3 rounded-xl border border-slate-200/80 flex items-center justify-between text-xs">
-                <div className="flex items-center gap-2">
-                  <Building2 className="w-3.5 h-3.5 text-teal-600 shrink-0" />
-                  <span className="font-bold text-slate-800 truncate max-w-[200px]">{hosp.name}</span>
-                </div>
-                <span className="font-mono font-bold text-teal-800 bg-teal-50 px-2 py-0.5 rounded-md">
-                  {hosp.count} orders
-                </span>
+            {(!orders.hospitalWise || orders.hospitalWise.length === 0) ? (
+              <div className="col-span-full p-4 text-center text-xs text-slate-400 font-medium">
+                No hospital-wise requisition data available for this timeframe
               </div>
-            ))}
+            ) : (
+              orders.hospitalWise.slice(0, 6).map((hosp, idx) => (
+                <div key={idx} className="p-3 rounded-xl border border-slate-200/80 flex items-center justify-between text-xs">
+                  <div className="flex items-center gap-2">
+                    <Building2 className="w-3.5 h-3.5 text-teal-600 shrink-0" />
+                    <span className="font-bold text-slate-800 truncate max-w-[200px]">{hosp.name}</span>
+                  </div>
+                  <span className="font-mono font-bold text-teal-800 bg-teal-50 px-2 py-0.5 rounded-md">
+                    {hosp.count} orders
+                  </span>
+                </div>
+              ))
+            )}
           </div>
         </div>
       </div>
@@ -424,32 +476,32 @@ export const AdminReports = () => {
           </div>
           <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-50 border border-amber-200 text-amber-800 text-xs font-bold font-mono">
             <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
-            <span>{reports.feedback.averageRating} / 5.0 CSAT</span>
+            <span>{feedback.averageRating || '0.0'} / 5.0 CSAT</span>
           </div>
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80 space-y-0.5">
             <div className="text-[10px] font-bold uppercase text-slate-400">Total Feedback</div>
-            <div className="text-xl font-black text-slate-900 font-mono">{reports.feedback.total}</div>
+            <div className="text-xl font-black text-slate-900 font-mono">{feedback.total ?? 0}</div>
             <div className="text-[10px] text-slate-500">Submissions received</div>
           </div>
 
           <div className="p-3.5 rounded-xl bg-emerald-50/50 border border-emerald-200/80 space-y-0.5">
             <div className="text-[10px] font-bold uppercase text-emerald-700">Resolved</div>
-            <div className="text-xl font-black text-emerald-800 font-mono">{reports.feedback.resolved}</div>
+            <div className="text-xl font-black text-emerald-800 font-mono">{feedback.resolved ?? 0}</div>
             <div className="text-[10px] text-emerald-600">Executive reply sent</div>
           </div>
 
           <div className="p-3.5 rounded-xl bg-amber-50/50 border border-amber-200/80 space-y-0.5">
             <div className="text-[10px] font-bold uppercase text-amber-700">Unresolved / Open</div>
-            <div className="text-xl font-black text-amber-800 font-mono">{reports.feedback.unresolved}</div>
+            <div className="text-xl font-black text-amber-800 font-mono">{feedback.unresolved ?? 0}</div>
             <div className="text-[10px] text-amber-600">Pending investigation</div>
           </div>
 
           <div className="p-3.5 rounded-xl bg-teal-50/50 border border-teal-200/80 space-y-0.5">
             <div className="text-[10px] font-bold uppercase text-teal-700">Satisfaction Score</div>
-            <div className="text-xl font-black text-teal-800 font-mono">{reports.feedback.averageRating} ★</div>
+            <div className="text-xl font-black text-teal-800 font-mono">{feedback.averageRating || '0.0'} ★</div>
             <div className="text-[10px] text-teal-600">Target: &gt; 4.5 ★</div>
           </div>
         </div>
@@ -460,14 +512,20 @@ export const AdminReports = () => {
             Category-wise Feedback Breakdown
           </h4>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-            {reports.feedback.categoryWise?.map((cat, idx) => (
-              <div key={idx} className="p-3 rounded-xl border border-slate-200/80 flex items-center justify-between text-xs">
-                <span className="font-semibold text-slate-700">{cat.category}</span>
-                <span className="font-mono font-bold text-slate-900 bg-slate-100 px-2 py-0.5 rounded-md">
-                  {cat.count}
-                </span>
+            {(!feedback.categoryWise || feedback.categoryWise.length === 0) ? (
+              <div className="col-span-full p-4 text-center text-xs text-slate-400 font-medium">
+                No category-wise feedback data available for this timeframe
               </div>
-            ))}
+            ) : (
+              feedback.categoryWise.map((cat, idx) => (
+                <div key={idx} className="p-3 rounded-xl border border-slate-200/80 flex items-center justify-between text-xs">
+                  <span className="font-semibold text-slate-700">{cat.category}</span>
+                  <span className="font-mono font-bold text-slate-900 bg-slate-100 px-2 py-0.5 rounded-md">
+                    {cat.count}
+                  </span>
+                </div>
+              ))
+            )}
           </div>
         </div>
       </div>

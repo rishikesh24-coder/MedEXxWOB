@@ -7,6 +7,7 @@ import { auditService } from './auditService.js';
 import { findAlternatives } from './medicineAlternativeService.js';
 import { getCancellationPolicy, calculateRefundAmounts } from '../utils/cancellationPolicy.js';
 import { API_BASE_URL } from '../config/api.js';
+import { normalizeMedicine } from '../utils/formatters.js';
 
 const SUSPENDED_HOSPITAL_ERROR = 'Your hospital account is currently suspended. You cannot perform transactions or operational activities.';
 
@@ -16,8 +17,9 @@ const SUSPENDED_HOSPITAL_ERROR = 'Your hospital account is currently suspended. 
  */
 const assertHospitalActive = (requestedHospitalId) => {
   const session = getStoredItem(KEYS.AUTH, null);
-  const authenticatedHospitalId = session?.user?.role === 'hospital' ? session.user.id : requestedHospitalId;
-  if (session?.user?.role === 'hospital' && requestedHospitalId && authenticatedHospitalId !== requestedHospitalId) {
+  const user = session?.user;
+  const authenticatedHospitalId = user?.role === 'hospital' ? (user.hospitalId || user.id) : requestedHospitalId;
+  if (user?.role === 'hospital' && requestedHospitalId && authenticatedHospitalId !== requestedHospitalId && user.id !== requestedHospitalId) {
     throw new Error('You are not authorized to act for this hospital');
   }
   if (isHospitalSuspended(authenticatedHospitalId)) {
@@ -220,11 +222,11 @@ export const hospitalService = {
         });
         const json = await response.json().catch(() => null);
         if (response.ok && json?.success && json?.data) {
-          const items = Array.isArray(json.data) ? json.data : (json.data.items || []);
-          if (items.length > 0) {
-            return items.map((m) => ({
+          const items = Array.isArray(json.data) ? json.data : (json.data.inventory || json.data.items || []);
+          if (Array.isArray(items)) {
+            return items.map((m) => normalizeMedicine({
               ...m,
-              brandName: m.medicineName || m.brandName,
+              brandName: m.medicine_name || m.medicineName || m.brandName,
               power: m.strength || m.power || m.dosage,
               unitOriginalPrice: m.mrp || m.unitPrice,
               unitFinalPrice: m.concessionRate || m.unitPrice,
@@ -303,33 +305,35 @@ export const hospitalService = {
 
     // Map and return isolated inventory with comprehensive, consistent medical stock data
     return isolatedMedicines.map((m) => {
-      const tot = Number(m.totalQuantity ?? m.quantity ?? 0);
-      const res = Number(m.reservedQuantity ?? 0);
-      const avail = Math.max(0, Number(m.availableQuantity ?? (tot - res)));
-      const reorder = Number(m.reorderLevel ?? m.minStockLevel ?? m.minimumStock ?? 20);
-      const mrpVal = Number(m.mrp ?? m.unitOriginalPrice ?? 100);
-      const conRate = Number(m.concessionRate ?? m.unitFinalPrice ?? Math.round(mrpVal * (1 - (m.concessionPercent || 15) / 100)));
-      const costRateVal = Number(m.costRate ?? m.acquisitionCost ?? Math.round(mrpVal * 0.85));
+      const normalized = normalizeMedicine(m);
+      const tot = Number(normalized.totalQuantity ?? normalized.quantity ?? 0);
+      const res = Number(normalized.reservedQuantity ?? 0);
+      const avail = Math.max(0, Number(normalized.availableQuantity ?? (tot - res)));
+      const reorder = Number(normalized.minStockLevel ?? normalized.reorder_level ?? 0);
+      const mrpVal = Number(normalized.mrp ?? normalized.unitOriginalPrice ?? 100);
+      const conRate = Number(normalized.concessionRate ?? normalized.unitFinalPrice ?? Math.round(mrpVal * (1 - (normalized.concessionPercent || 15) / 100)));
+      const costRateVal = Number(normalized.costRate ?? normalized.acquisitionCost ?? Math.round(mrpVal * 0.85));
 
-      const uPerPack = Number(m.unitsPerPack) > 0 ? Number(m.unitsPerPack) : 15;
-      const numPacks = m.numberOfPacks !== undefined && Number(m.numberOfPacks) > 0 
-        ? Number(m.numberOfPacks) 
+      const uPerPack = Number(normalized.unitsPerPack) > 0 ? Number(normalized.unitsPerPack) : 15;
+      const numPacks = normalized.numberOfPacks !== undefined && Number(normalized.numberOfPacks) > 0
+        ? Number(normalized.numberOfPacks)
         : Math.max(1, Math.ceil(tot / uPerPack));
-      const totalU = Number(m.totalUnits) > 0 ? Number(m.totalUnits) : tot;
-      const storageCond = m.storageCondition || m.storageType || 'Room Temperature (15°C - 25°C)';
-      const pSize = m.packSize || m.packing || `${uPerPack} Units / Strip`;
-      const medCode = m.medicineCode || m.masterMedicineId || m.medicineId || ('MED-' + (m.id ? m.id.slice(-4) : 'CAT'));
+      const totalU = Number(normalized.totalUnits) > 0 ? Number(normalized.totalUnits) : tot;
+      const storageCond = normalized.storageLocation || normalized.storage_location || normalized.storageCondition || normalized.storageType || 'Room Temperature (15°C - 25°C)';
+      const pSize = normalized.packSize || normalized.packing || `${uPerPack} Units / Strip`;
+      const medCode = normalized.medicineCode || normalized.masterMedicineId || normalized.medicineId || ('MED-' + (normalized.id ? normalized.id.slice(-4) : 'CAT'));
 
       return {
-        ...m,
+        ...normalized,
         totalQuantity: tot,
         quantity: tot,
         reservedQuantity: res,
         availableQuantity: avail,
+        reorder_level: reorder,
         reorderLevel: reorder,
         minStock: reorder,
         minStockLevel: reorder,
-        shelfLocation: m.shelfLocation || 'Rack A - Shelf 3',
+        shelfLocation: normalized.shelfLocation || 'Rack A - Shelf 3',
         packing: pSize,
         packSize: pSize,
         numberOfPacks: numPacks,
@@ -337,10 +341,12 @@ export const hospitalService = {
         totalUnits: totalU,
         storageCondition: storageCond,
         storageType: storageCond,
+        storageLocation: storageCond,
+        storage_location: storageCond,
         medicineCode: medCode,
-        unit: m.unit || 'Tablet',
-        dosage: m.dosage || m.power || m.strength || 'Standard formulation',
-        dosageForm: m.dosageForm || m.form || 'Tablet',
+        unit: normalized.unit || 'Tablet',
+        dosage: normalized.dosage || normalized.power || normalized.strength || 'Standard formulation',
+        dosageForm: normalized.dosageForm || normalized.form || 'Tablet',
         mrp: mrpVal,
         unitOriginalPrice: mrpVal,
         concessionRate: conRate,
@@ -354,32 +360,51 @@ export const hospitalService = {
   async addMedicine(medicineData) {
     assertHospitalActive(medicineData.hospitalId);
 
+    let response = null;
+    let json = null;
     try {
       const session = getStoredItem(KEYS.AUTH, null);
       const token = session?.token;
       if (token) {
-        const response = await fetch(`${API_BASE_URL}/inventory`, {
+        const payload = {
+          ...medicineData,
+          medicineId: medicineData.medicineId || medicineData.medicine_id,
+          batchNumber: medicineData.batchNo || medicineData.batch_number || medicineData.batchNumber,
+          batch_number: medicineData.batchNo || medicineData.batch_number || medicineData.batchNumber,
+          quantity: Number(medicineData.quantity),
+          reorderLevel: Number(medicineData.minStockLevel ?? medicineData.reorder_level ?? medicineData.reorderLevel ?? 0),
+          reorder_level: Number(medicineData.minStockLevel ?? medicineData.reorder_level ?? medicineData.reorderLevel ?? 0),
+          expiryDate: medicineData.expiryDate || medicineData.expiry_date,
+          expiry_date: medicineData.expiryDate || medicineData.expiry_date,
+          storageLocation: medicineData.storageLocation || medicineData.storage_location || medicineData.storageType,
+          storage_location: medicineData.storageLocation || medicineData.storage_location || medicineData.storageType,
+        };
+        response = await fetch(`${API_BASE_URL}/inventory`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${token}`,
           },
-          body: JSON.stringify(medicineData),
+          body: JSON.stringify(payload),
         });
-        const json = await response.json().catch(() => null);
-        if (response.ok && json?.success && json?.data) {
-          const medicines = getStoredItem(KEYS.MEDICINES, []);
-          medicines.unshift(json.data);
-          setStoredItem(KEYS.MEDICINES, medicines);
-          return json.data;
-        } else if (response.status === 409 || response.status === 403 || response.status === 422) {
-          throw new Error(json?.message || 'Inventory intake rejected');
-        }
+        json = await response.json().catch(() => null);
       }
     } catch (apiErr) {
-      if (apiErr.message && !apiErr.message.includes('fetch')) {
-        throw apiErr;
+      // Network unreachable
+    }
+
+    if (response) {
+      if (!response.ok) {
+        throw new Error(json?.message || json?.error || `Inventory intake rejected (${response.status})`);
       }
+      if (json?.success && json?.data) {
+        const itemData = json.data.inventoryItem || json.data;
+        const medicines = getStoredItem(KEYS.MEDICINES, []);
+        medicines.unshift(normalizeMedicine(itemData));
+        setStoredItem(KEYS.MEDICINES, medicines);
+        return normalizeMedicine(itemData);
+      }
+      throw new Error(json?.message || 'Inventory intake rejected');
     }
 
     await new Promise((r) => setTimeout(r, 250));
@@ -653,11 +678,13 @@ export const hospitalService = {
   },
 
   async updateMedicine(id, updatedData) {
+    let response = null;
+    let json = null;
     try {
       const session = getStoredItem(KEYS.AUTH, null);
       const token = session?.token;
       if (token) {
-        const response = await fetch(`${API_BASE_URL}/inventory/${id}`, {
+        response = await fetch(`${API_BASE_URL}/inventory/${id}`, {
           method: 'PATCH',
           headers: {
             'Content-Type': 'application/json',
@@ -665,19 +692,28 @@ export const hospitalService = {
           },
           body: JSON.stringify(updatedData),
         });
-        const json = await response.json().catch(() => null);
-        if (response.ok && json?.success && json?.data) {
-          const medicines = getStoredItem(KEYS.MEDICINES, []);
-          const idx = medicines.findIndex((m) => m.id === id);
-          if (idx !== -1) {
-            medicines[idx] = { ...medicines[idx], ...json.data };
-            setStoredItem(KEYS.MEDICINES, medicines);
-          }
-          return json.data;
-        }
+        json = await response.json().catch(() => null);
       }
     } catch (apiErr) {
-      // fallback
+      // network unreachable
+    }
+
+    if (response) {
+      if (!response.ok) {
+        throw new Error(json?.message || json?.error || `Failed to update medicine (${response.status})`);
+      }
+      if (json?.success && json?.data) {
+        const itemData = json.data.inventoryItem || json.data.item || json.data;
+        const normalized = normalizeMedicine(itemData);
+        const medicines = getStoredItem(KEYS.MEDICINES, []);
+        const idx = medicines.findIndex((m) => m.id === id);
+        if (idx !== -1) {
+          medicines[idx] = { ...medicines[idx], ...normalized };
+          setStoredItem(KEYS.MEDICINES, medicines);
+        }
+        return normalized;
+      }
+      throw new Error(json?.message || 'Failed to update medicine');
     }
 
     await new Promise((r) => setTimeout(r, 200));
@@ -879,27 +915,36 @@ export const hospitalService = {
   },
 
   async deleteMedicine(id) {
+    let response = null;
+    let json = null;
     try {
       const session = getStoredItem(KEYS.AUTH, null);
       const token = session?.token;
       if (token) {
-        const response = await fetch(`${API_BASE_URL}/inventory/${id}`, {
+        response = await fetch(`${API_BASE_URL}/inventory/${id}`, {
           method: 'DELETE',
           headers: {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${token}`,
           },
         });
-        const json = await response.json().catch(() => null);
-        if (response.ok && json?.success) {
-          const medicines = getStoredItem(KEYS.MEDICINES, []);
-          const filtered = medicines.filter((m) => m.id !== id);
-          setStoredItem(KEYS.MEDICINES, filtered);
-          return true;
-        }
+        json = await response.json().catch(() => null);
       }
     } catch (e) {
-      // fallback
+      // network unreachable
+    }
+
+    if (response) {
+      if (!response.ok) {
+        throw new Error(json?.message || json?.error || `Failed to delete medicine (${response.status})`);
+      }
+      if (json?.success) {
+        const medicines = getStoredItem(KEYS.MEDICINES, []);
+        const filtered = medicines.filter((m) => m.id !== id);
+        setStoredItem(KEYS.MEDICINES, filtered);
+        return true;
+      }
+      throw new Error(json?.message || 'Failed to delete medicine');
     }
 
     await new Promise((r) => setTimeout(r, 200));
@@ -931,11 +976,13 @@ export const hospitalService = {
   },
 
   async adjustStock(id, { quantityChange, reason }) {
+    let response = null;
+    let json = null;
     try {
       const session = getStoredItem(KEYS.AUTH, null);
       const token = session?.token;
       if (token) {
-        const response = await fetch(`${API_BASE_URL}/inventory/${id}/adjust`, {
+        response = await fetch(`${API_BASE_URL}/inventory/${id}/adjust`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -943,15 +990,20 @@ export const hospitalService = {
           },
           body: JSON.stringify({ quantityChange, reason }),
         });
-        const json = await response.json().catch(() => null);
-        if (response.ok && json?.success && json?.data) {
-          return json.data;
-        } else if (response.status === 400 || response.status === 422 || response.status === 403) {
-          throw new Error(json?.message || 'Stock adjustment rejected');
-        }
+        json = await response.json().catch(() => null);
       }
     } catch (apiErr) {
-      if (apiErr.message && !apiErr.message.includes('fetch')) throw apiErr;
+      // network unreachable
+    }
+
+    if (response) {
+      if (!response.ok) {
+        throw new Error(json?.message || json?.error || `Stock adjustment rejected (${response.status})`);
+      }
+      if (json?.success && json?.data) {
+        return json.data;
+      }
+      throw new Error(json?.message || 'Stock adjustment rejected');
     }
     return this.updateMedicine(id, { quantityChange, reason });
   },
@@ -1115,8 +1167,8 @@ export const hospitalService = {
         });
         const json = await response.json().catch(() => null);
         if (response.ok && json?.success && json?.data) {
-          const items = json.data.items || json.data.listings || json.data;
-          if (Array.isArray(items) && items.length > 0) {
+          const items = json.data.items || json.data.listings || (Array.isArray(json.data) ? json.data : []);
+          if (Array.isArray(items)) {
             return items;
           }
         }
@@ -1191,11 +1243,13 @@ export const hospitalService = {
   // 4. REQUESTS & 48-HOUR SLA & FIRST ACCEPTANCE WINS
   // ==========================================
   async createRequest(reqData) {
+    let response = null;
+    let json = null;
     try {
       const session = getStoredItem(KEYS.AUTH, null);
       const token = session?.token;
       if (token) {
-        const response = await fetch(`${API_BASE_URL}/requests`, {
+        response = await fetch(`${API_BASE_URL}/requests`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -1210,22 +1264,25 @@ export const hospitalService = {
             notes: reqData.notes || '',
           }),
         });
-        const json = await response.json().catch(() => null);
-        if (response.ok && json?.success && json?.data) {
-          const created = json.data;
-          const requests = getStoredItem(KEYS.REQUESTS, []);
-          requests.unshift(created);
-          setStoredItem(KEYS.REQUESTS, requests);
-          return created;
-        } else if (!response.ok && json?.error?.message) {
-          throw new Error(json.error.message);
-        }
+        json = await response.json().catch(() => null);
       }
     } catch (e) {
-      if (e.message && !e.message.includes('fetch') && !e.message.includes('Failed to fetch')) {
-        throw e;
+      // network unreachable
+    }
+
+    if (response) {
+      if (!response.ok) {
+        const errMsg = json?.message || json?.error || (typeof json?.error === 'string' ? json.error : null) || `Request failed with status ${response.status}`;
+        throw new Error(errMsg);
       }
-      // offline fallback
+      if (json?.success && json?.data) {
+        const created = json.data.request || json.data;
+        const requests = getStoredItem(KEYS.REQUESTS, []);
+        requests.unshift(created);
+        setStoredItem(KEYS.REQUESTS, requests);
+        return created;
+      }
+      throw new Error(json?.message || 'Failed to create request');
     }
 
     await new Promise((r) => setTimeout(r, 300));
@@ -1317,10 +1374,50 @@ export const hospitalService = {
   },
 
   async getOutgoingRequests(hospitalIdParam) {
-    await new Promise((r) => setTimeout(r, 150));
     const hospitalId = resolveHospitalId(hospitalIdParam);
     if (!hospitalId) return [];
 
+    try {
+      const session = getStoredItem(KEYS.AUTH, null);
+      const token = session?.token;
+      if (token) {
+        const response = await fetch(`${API_BASE_URL}/requests`, {
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+        });
+        const json = await response.json().catch(() => null);
+        if (response.ok && json?.success && json?.data) {
+          const rawList = Array.isArray(json.data) ? json.data : (json.data.requests || []);
+          if (Array.isArray(rawList)) {
+            const mapped = rawList.map((r) => {
+              const reqId = r.requesting_hospital_id || r.fromHospitalId;
+              const supId = r.supplying_hospital_id || r.toHospitalId;
+              const rawStatus = (r.status || 'pending').toLowerCase();
+              return {
+                ...r,
+                id: r.id,
+                fromHospitalId: reqId,
+                requestingHospitalId: reqId,
+                toHospitalId: supId,
+                supplyingHospitalId: supId,
+                fromHospitalName: r.requesting_hospital_name || r.fromHospitalName || 'Requester Hospital',
+                toHospitalName: r.supplying_hospital_name || r.toHospitalName || 'Supplier Hospital',
+                status: rawStatus,
+                requestDate: r.created_at || r.requestDate || new Date().toISOString(),
+                createdAt: r.created_at || r.createdAt,
+                priority: r.priority || 'normal',
+                quantity: Number(r.quantity || 0),
+              };
+            });
+            return mapped.filter((r) => r.fromHospitalId === hospitalId);
+          }
+        }
+      }
+    } catch (e) {}
+
+    await new Promise((r) => setTimeout(r, 150));
     const allRequests = getStoredItem(KEYS.REQUESTS, []);
     const { requests: refreshedRequests, hasExpiredChanges } = processExpiredRequests(allRequests);
     if (hasExpiredChanges) {
@@ -1331,10 +1428,50 @@ export const hospitalService = {
   },
 
   async getIncomingRequests(hospitalIdParam) {
-    await new Promise((r) => setTimeout(r, 150));
     const hospitalId = resolveHospitalId(hospitalIdParam);
     if (!hospitalId) return [];
 
+    try {
+      const session = getStoredItem(KEYS.AUTH, null);
+      const token = session?.token;
+      if (token) {
+        const response = await fetch(`${API_BASE_URL}/requests`, {
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+        });
+        const json = await response.json().catch(() => null);
+        if (response.ok && json?.success && json?.data) {
+          const rawList = Array.isArray(json.data) ? json.data : (json.data.requests || []);
+          if (Array.isArray(rawList)) {
+            const mapped = rawList.map((r) => {
+              const reqId = r.requesting_hospital_id || r.fromHospitalId;
+              const supId = r.supplying_hospital_id || r.toHospitalId;
+              const rawStatus = (r.status || 'pending').toLowerCase();
+              return {
+                ...r,
+                id: r.id,
+                fromHospitalId: reqId,
+                requestingHospitalId: reqId,
+                toHospitalId: supId,
+                supplyingHospitalId: supId,
+                fromHospitalName: r.requesting_hospital_name || r.fromHospitalName || 'Requester Hospital',
+                toHospitalName: r.supplying_hospital_name || r.toHospitalName || 'Supplier Hospital',
+                status: rawStatus,
+                requestDate: r.created_at || r.requestDate || new Date().toISOString(),
+                createdAt: r.created_at || r.createdAt,
+                priority: r.priority || 'normal',
+                quantity: Number(r.quantity || 0),
+              };
+            });
+            return mapped.filter((r) => r.toHospitalId === hospitalId);
+          }
+        }
+      }
+    } catch (e) {}
+
+    await new Promise((r) => setTimeout(r, 150));
     const allRequests = getStoredItem(KEYS.REQUESTS, []);
     const { requests: refreshedRequests, hasExpiredChanges } = processExpiredRequests(allRequests);
     if (hasExpiredChanges) {
@@ -1538,11 +1675,13 @@ export const hospitalService = {
    * Safely restores seller-reserved stock if accepted/packed prior to dispatch.
    */
   async cancelRequest({ requestId, reason = 'No longer required', note = '', hospitalId }) {
+    let response = null;
+    let json = null;
     try {
       const session = getStoredItem(KEYS.AUTH, null);
       const token = session?.token;
       if (token) {
-        const response = await fetch(`${API_BASE_URL}/requests/${requestId}/cancel`, {
+        response = await fetch(`${API_BASE_URL}/requests/${requestId}/cancel`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -1550,24 +1689,27 @@ export const hospitalService = {
           },
           body: JSON.stringify({ reason, notes: note }),
         });
-        const json = await response.json().catch(() => null);
-        if (response.ok && json?.success && json?.data) {
-          const requests = getStoredItem(KEYS.REQUESTS, []);
-          const reqIndex = requests.findIndex((r) => r.id === requestId);
-          if (reqIndex !== -1) {
-            requests[reqIndex] = { ...requests[reqIndex], ...json.data.request, status: 'cancelled' };
-            setStoredItem(KEYS.REQUESTS, requests);
-          }
-          return json.data;
-        } else if (!response.ok && json?.error?.message) {
-          throw new Error(json.error.message);
-        }
+        json = await response.json().catch(() => null);
       }
     } catch (e) {
-      if (e.message && !e.message.includes('fetch') && !e.message.includes('Failed to fetch')) {
-        throw e;
+      // network unreachable
+    }
+
+    if (response) {
+      if (!response.ok) {
+        const errMsg = json?.message || json?.error || (typeof json?.error === 'string' ? json.error : null) || `Failed to cancel request (${response.status})`;
+        throw new Error(errMsg);
       }
-      // offline fallback
+      if (json?.success && json?.data) {
+        const requests = getStoredItem(KEYS.REQUESTS, []);
+        const reqIndex = requests.findIndex((r) => r.id === requestId);
+        if (reqIndex !== -1) {
+          requests[reqIndex] = { ...requests[reqIndex], ...json.data.request, status: 'cancelled' };
+          setStoredItem(KEYS.REQUESTS, requests);
+        }
+        return json.data;
+      }
+      throw new Error(json?.message || 'Failed to cancel request');
     }
 
     await new Promise((r) => setTimeout(r, 250));
@@ -1717,11 +1859,14 @@ export const hospitalService = {
     // 1. Authoritative backend payment flow
     const session = getStoredItem(KEYS.AUTH, null);
     const token = session?.token;
-    let backendPayment = verification?.payment || null;
+    let backendPayment = verification?.payment || verification?.data || verification || null;
+    let order = null;
 
     if (!backendPayment && token) {
+      let createRes = null;
+      let createData = null;
       try {
-        const createRes = await fetch(`${API_BASE_URL}/payments/create`, {
+        createRes = await fetch(`${API_BASE_URL}/payments/create`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -1729,10 +1874,17 @@ export const hospitalService = {
           },
           body: JSON.stringify({ requestId, deliveryCharge, distanceKm, totalPayable }),
         });
-        const createData = await createRes.json();
+        createData = await createRes.json().catch(() => null);
+      } catch (netErr) {
+        // Network unreachable
+      }
 
+      if (createRes) {
+        if (!createRes.ok) {
+          throw new Error(createData?.message || createData?.error || `Payment order creation failed (${createRes.status})`);
+        }
         if (createRes.ok && createData?.success && createData?.data) {
-          const order = createData.data;
+          order = createData.data;
           const providerPaymentId = 'pay_' + Math.random().toString(36).substring(2, 12);
           const providerSignature = `mock_sig_${order.providerOrderId}_${providerPaymentId}`;
 
@@ -1749,13 +1901,14 @@ export const hospitalService = {
               providerSignature,
             }),
           });
-          const verifyData = await verifyRes.json();
-          if (verifyRes.ok && verifyData?.success && verifyData?.data?.payment) {
-            backendPayment = verifyData.data.payment;
+          const verifyData = await verifyRes.json().catch(() => null);
+          if (!verifyRes.ok) {
+            throw new Error(verifyData?.message || verifyData?.error || `Payment verification failed (${verifyRes.status})`);
+          }
+          if (verifyRes.ok && verifyData?.success && verifyData?.data) {
+            backendPayment = verifyData.data.payment || verifyData.data;
           }
         }
-      } catch (apiErr) {
-        // Fall through to local simulation fallback
       }
     }
 
@@ -1773,8 +1926,8 @@ export const hospitalService = {
       throw new Error(`Cannot pay for requisition in "${req.status}" status. Requisition must be accepted first.`);
     }
 
-    const paymentId = backendPayment?.id || ('pay_demo_' + Math.random().toString(36).substring(2, 11));
-    const orderId = backendPayment?.providerOrderId || backendPayment?.provider_order_id || ('order_demo_' + Math.random().toString(36).substring(2, 10));
+    const paymentId = backendPayment?.paymentId || backendPayment?.id || ('pay_' + Math.random().toString(36).substring(2, 11));
+    const orderId = backendPayment?.providerOrderId || backendPayment?.orderId || order?.providerOrderId || ('order_' + Math.random().toString(36).substring(2, 10));
 
     // Derive authoritative final payment amounts
     const fee = Number(deliveryCharge || req.deliveryCharge || 0);
@@ -2159,7 +2312,7 @@ export const hospitalService = {
         if (response.ok) {
           const json = await response.json().catch(() => null);
           if (json?.success && json?.data) {
-            return json.data;
+            return json.data.transfer || json.data;
           }
         }
       }
@@ -2186,8 +2339,11 @@ export const hospitalService = {
         });
         if (response.ok) {
           const json = await response.json().catch(() => null);
-          if (json?.success && Array.isArray(json?.data) && json.data.length > 0) {
-            return json.data;
+          if (json?.success && json?.data) {
+            const list = Array.isArray(json.data) ? json.data : (json.data.transfers || []);
+            if (Array.isArray(list)) {
+              return list;
+            }
           }
         }
       }
@@ -2361,11 +2517,13 @@ export const hospitalService = {
   async submitFeedback(feedbackData) {
     const hospitalId = resolveHospitalId(feedbackData.hospitalId);
     let serverFeedback = null;
+    let response = null;
+    let json = null;
     try {
       const session = getStoredItem(KEYS.AUTH, null);
       const token = session?.token;
       if (token) {
-        const response = await fetch(`${API_BASE_URL}/feedback`, {
+        response = await fetch(`${API_BASE_URL}/feedback`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -2377,21 +2535,30 @@ export const hospitalService = {
             feedbackText: feedbackData.feedbackText,
           }),
         });
-        if (response.ok) {
-          const json = await response.json().catch(() => null);
-          if (json?.success && json?.data) {
-            serverFeedback = json.data;
-          }
-        }
+        json = await response.json().catch(() => null);
       }
     } catch (e) {
       // fallback to offline
     }
 
+    if (response) {
+      if (!response.ok) {
+        throw new Error(json?.message || json?.error || `Failed to submit feedback (${response.status})`);
+      }
+      if (json?.success && json?.data) {
+        serverFeedback = json.data;
+        const feedbacks = getStoredItem(KEYS.FEEDBACKS, []);
+        feedbacks.unshift(serverFeedback);
+        setStoredItem(KEYS.FEEDBACKS, feedbacks);
+        return serverFeedback;
+      }
+      throw new Error(json?.message || 'Failed to submit feedback');
+    }
+
     const feedbacks = getStoredItem(KEYS.FEEDBACKS, []);
     const newFb = serverFeedback || {
       id: 'fb-' + Date.now(),
-      hospitalId: hospitalId || 'hosp-1',
+      hospitalId: hospitalId || resolveHospitalId() || null,
       hospitalName: feedbackData.hospitalName || 'Hospital Facility',
       rating: Number(feedbackData.rating),
       category: feedbackData.category || 'General Service',
@@ -2423,7 +2590,7 @@ export const hospitalService = {
         });
         if (response.ok) {
           const json = await response.json().catch(() => null);
-          if (json?.success && Array.isArray(json?.data) && json.data.length > 0) {
+          if (json?.success && Array.isArray(json?.data)) {
             return json.data;
           }
         }

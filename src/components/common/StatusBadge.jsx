@@ -6,9 +6,10 @@ export const StatusBadge = ({ status, className = '', showIcon = true }) => {
 
   const normalized = status.toLowerCase().trim();
 
-  // GREEN: available / verified / accepted / paid / delivered / success / certified / healthy / active / in stock / completed
-  if (['available', 'verified', 'accepted', 'paid', 'delivered', 'success', 'incinerated & certified', 'certified', 'healthy', 'active stock', 'active', 'in stock', 'in_stock', 'completed'].includes(normalized)) {
+  // GREEN: available / verified / approved / accepted / paid / delivered / success / certified / healthy / active / in stock / completed
+  if (['available', 'verified', 'approved', 'accepted', 'paid', 'delivered', 'success', 'incinerated & certified', 'certified', 'healthy', 'active stock', 'active', 'in stock', 'in_stock', 'completed'].includes(normalized)) {
     let displayLabel = status;
+    if (normalized === 'approved') displayLabel = 'Approved';
     if (normalized === 'healthy' || normalized === 'active') displayLabel = 'Available';
     if (normalized === 'in_stock' || normalized === 'in stock') displayLabel = 'In Stock';
     if (normalized === 'paid') displayLabel = 'Paid';

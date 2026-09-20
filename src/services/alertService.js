@@ -23,8 +23,11 @@ const getAuthHeaders = () => {
 const normalizeBackendAlert = (raw, defaultRole = 'hospital') => {
   const severity = (raw.severity || 'INFO').toUpperCase();
   const alertType = raw.alert_type || raw.category || 'GENERAL';
-  const isRead = Boolean(raw.is_read || raw.read);
+  const rawStatus = (raw.status || '').toLowerCase().trim();
+  const isResolved = rawStatus === 'resolved' || Boolean(raw.resolved_at);
+  const isRead = Boolean(raw.is_read || raw.read || rawStatus === 'read' || isResolved || raw.read_at);
   const isDismissed = Boolean(raw.is_dismissed || raw.dismissed);
+  const status = isResolved ? 'resolved' : (isRead ? 'read' : 'unread');
 
   let group = 'info';
   if (severity === 'CRITICAL') group = 'critical';
@@ -75,7 +78,12 @@ const normalizeBackendAlert = (raw, defaultRole = 'hospital') => {
     hospitalId: raw.hospital_id || null,
     medicineName: raw.metadata?.medicineName || '',
     batchNo: raw.metadata?.batchNo || '',
+    status,
     read: isRead,
+    isRead,
+    is_read: isRead,
+    resolved: isResolved,
+    isResolved,
     dismissed: isDismissed,
     metadata: raw.metadata || {},
   };
@@ -99,13 +107,18 @@ export const alertService = {
 
     // 1. Try Authoritative Backend API
     try {
-      const res = await fetch(`${API_BASE_URL}/alerts?hospitalId=${encodeURIComponent(hospitalId)}&limit=100`, {
+      let res = await fetch(`${API_BASE_URL}/hospital/notifications?limit=100`, {
         headers: getAuthHeaders(),
       });
+      if (!res.ok) {
+        res = await fetch(`${API_BASE_URL}/alerts?hospitalId=${encodeURIComponent(hospitalId)}&limit=100`, {
+          headers: getAuthHeaders(),
+        });
+      }
       if (res.ok) {
         const json = await res.json();
-        const rawList = Array.isArray(json?.data) ? json.data : (json?.data?.items || []);
-        if (Array.isArray(rawList) && rawList.length > 0) {
+        const rawList = Array.isArray(json?.data) ? json.data : (json?.data?.notifications || json?.data?.items || json?.data?.alerts || []);
+        if (Array.isArray(rawList)) {
           const mapped = rawList.map((item) => normalizeBackendAlert(item, 'hospital'));
           cachedHospitalAlerts = mapped.filter((a) => !a.dismissed);
           return cachedHospitalAlerts;
@@ -321,13 +334,18 @@ export const alertService = {
    */
   async getAdminAlerts() {
     try {
-      const res = await fetch(`${API_BASE_URL}/alerts?limit=100`, {
+      let res = await fetch(`${API_BASE_URL}/admin/alerts?limit=100`, {
         headers: getAuthHeaders(),
       });
+      if (!res.ok) {
+        res = await fetch(`${API_BASE_URL}/alerts?limit=100`, {
+          headers: getAuthHeaders(),
+        });
+      }
       if (res.ok) {
         const json = await res.json();
-        const rawList = Array.isArray(json?.data) ? json.data : (json?.data?.items || []);
-        if (Array.isArray(rawList) && rawList.length > 0) {
+        const rawList = Array.isArray(json?.data) ? json.data : (json?.data?.alerts || json?.data?.items || []);
+        if (Array.isArray(rawList)) {
           const mapped = rawList.map((item) => normalizeBackendAlert(item, 'admin'));
           cachedAdminAlerts = mapped.filter((a) => !a.dismissed);
           return cachedAdminAlerts;
@@ -454,21 +472,28 @@ export const alertService = {
    * Marks an alert as read both locally and in backend
    */
   async markAsRead(alertId) {
+    let response = null;
+    let json = null;
+    try {
+      response = await fetch(`${API_BASE_URL}/alerts/${encodeURIComponent(alertId)}/read`, {
+        method: 'PATCH',
+        headers: getAuthHeaders(),
+      });
+      json = await response.json().catch(() => null);
+    } catch (e) {
+      // Offline fallback
+    }
+
+    if (response && !response.ok) {
+      throw new Error(json?.message || json?.error || `Failed to mark alert as read (${response.status})`);
+    }
+
     const meta = getStoredItem(KEYS.ALERTS, {});
     meta[alertId] = { ...(meta[alertId] || {}), read: true };
     setStoredItem(KEYS.ALERTS, meta);
 
     const match = cachedHospitalAlerts.find((a) => a.id === alertId);
     if (match) match.read = true;
-
-    try {
-      await fetch(`${API_BASE_URL}/alerts/${encodeURIComponent(alertId)}/read`, {
-        method: 'PATCH',
-        headers: getAuthHeaders(),
-      });
-    } catch (e) {
-      // Offline fallback
-    }
 
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('medex-alert-event', { detail: { action: 'read', alertId } }));
@@ -479,21 +504,28 @@ export const alertService = {
    * Dismisses an active alert
    */
   async dismissAlert(alertId) {
+    let response = null;
+    let json = null;
+    try {
+      response = await fetch(`${API_BASE_URL}/alerts/${encodeURIComponent(alertId)}/dismiss`, {
+        method: 'PUT',
+        headers: getAuthHeaders(),
+      });
+      json = await response.json().catch(() => null);
+    } catch (e) {
+      // Offline fallback
+    }
+
+    if (response && !response.ok) {
+      throw new Error(json?.message || json?.error || `Failed to dismiss alert (${response.status})`);
+    }
+
     const meta = getStoredItem(KEYS.ALERTS, {});
     meta[alertId] = { ...(meta[alertId] || {}), dismissed: true };
     setStoredItem(KEYS.ALERTS, meta);
 
     cachedHospitalAlerts = cachedHospitalAlerts.filter((a) => a.id !== alertId);
     cachedAdminAlerts = cachedAdminAlerts.filter((a) => a.id !== alertId);
-
-    try {
-      await fetch(`${API_BASE_URL}/alerts/${encodeURIComponent(alertId)}/dismiss`, {
-        method: 'PUT',
-        headers: getAuthHeaders(),
-      });
-    } catch (e) {
-      // Offline fallback
-    }
 
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('medex-alert-event', { detail: { action: 'dismiss', alertId } }));
@@ -504,13 +536,30 @@ export const alertService = {
    * Marks all alerts as read
    */
   async markAllAsRead(target) {
+    let response = null;
+    let json = null;
+    try {
+      response = await fetch(`${API_BASE_URL}/alerts/read-all`, {
+        method: 'PATCH',
+        headers: getAuthHeaders(),
+        body: JSON.stringify(typeof target === 'string' ? { hospitalId: target } : {}),
+      });
+      json = await response.json().catch(() => null);
+    } catch (e) {
+      // Offline fallback
+    }
+
+    if (response && !response.ok) {
+      throw new Error(json?.message || json?.error || `Failed to mark all alerts as read (${response.status})`);
+    }
+
     const meta = getStoredItem(KEYS.ALERTS, {});
     if (Array.isArray(target)) {
       target.forEach((alert) => {
         meta[alert.id] = { ...(meta[alert.id] || {}), read: true };
       });
     } else if (typeof target === 'string') {
-      const alerts = cachedHospitalAlerts.length > 0 ? cachedHospitalAlerts : this.generateLocalHospitalAlerts(target);
+      const alerts = cachedHospitalAlerts.length > 0 ? cachedHospitalAlerts : [];
       alerts.forEach((alert) => {
         meta[alert.id] = { ...(meta[alert.id] || {}), read: true };
       });
@@ -518,16 +567,6 @@ export const alertService = {
     setStoredItem(KEYS.ALERTS, meta);
 
     cachedHospitalAlerts.forEach((a) => { a.read = true; });
-
-    try {
-      await fetch(`${API_BASE_URL}/alerts/read-all`, {
-        method: 'PATCH',
-        headers: getAuthHeaders(),
-        body: JSON.stringify(typeof target === 'string' ? { hospitalId: target } : {}),
-      });
-    } catch (e) {
-      // Offline fallback
-    }
 
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('medex-alert-event', { detail: { action: 'read_all' } }));
@@ -551,7 +590,7 @@ export const alertService = {
     return this.markAsRead(alertId);
   },
 
-  markAllAdminAlertsAsRead() {
+  async markAllAdminAlertsAsRead() {
     const meta = getStoredItem(KEYS.ALERTS, {});
     cachedAdminAlerts.forEach((a) => {
       meta[a.id] = { ...(meta[a.id] || {}), read: true };
@@ -559,10 +598,21 @@ export const alertService = {
     });
     setStoredItem(KEYS.ALERTS, meta);
 
-    fetch(`${API_BASE_URL}/alerts/read-all`, {
-      method: 'PATCH',
-      headers: getAuthHeaders(),
-    }).catch(() => {});
+    let res = null;
+    let json = null;
+    try {
+      res = await fetch(`${API_BASE_URL}/alerts/read-all`, {
+        method: 'PATCH',
+        headers: getAuthHeaders(),
+      });
+      json = await res.json().catch(() => null);
+    } catch (e) {
+      // offline fallback
+    }
+
+    if (res && !res.ok) {
+      throw new Error(json?.message || json?.error || `Failed to mark admin alerts as read (${res.status})`);
+    }
   },
 
   dismissAdminAlert(alertId) {
@@ -589,17 +639,23 @@ export const alertService = {
    * Triggers a server-side inventory alert scan
    */
   async triggerInventoryScan(hospitalId = null) {
+    let res = null;
+    let json = null;
     try {
-      const res = await fetch(`${API_BASE_URL}/alerts/scan`, {
+      res = await fetch(`${API_BASE_URL}/alerts/scan`, {
         method: 'POST',
         headers: getAuthHeaders(),
         body: JSON.stringify({ hospitalId }),
       });
-      if (res.ok) {
-        return await res.json();
-      }
+      json = await res.json().catch(() => null);
     } catch (e) {
       // Fallback
+    }
+    if (res) {
+      if (!res.ok) {
+        throw new Error(json?.message || json?.error || `Alert scan failed (${res.status})`);
+      }
+      return json;
     }
     return null;
   },

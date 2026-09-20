@@ -57,9 +57,15 @@ export const ProtectedRoute = ({ children, allowedRole }) => {
   // 3. Operational Approval Check: Block pending or rejected hospital from dashboard / operations
   if (role === 'hospital' || allowedRole === 'hospital') {
     const liveHospital = getLiveHospitalRecord(user.id || user.hospitalId || user.email);
-    const effectiveStatus = (liveHospital?.status || user.status || '').toLowerCase();
+    const effectiveVerification = (
+      liveHospital?.verification_status ||
+      liveHospital?.verificationStatus ||
+      (['verified', 'approved', 'pending', 'pending_approval', 'under_review', 'rejected'].includes(String(liveHospital?.status || '').toLowerCase())
+        ? liveHospital.status
+        : (user?.verification_status || user?.status || 'verified'))
+    ).toLowerCase();
 
-    if (effectiveStatus === 'pending' || effectiveStatus === 'pending_approval' || effectiveStatus === 'under_review') {
+    if (effectiveVerification === 'pending' || effectiveVerification === 'pending_approval' || effectiveVerification === 'under_review') {
       return (
         <div className="min-h-[calc(100vh-8rem)] flex items-center justify-center p-4 sm:p-6 lg:p-8 bg-slate-50">
           <div className="max-w-md w-full bg-white p-6 sm:p-8 rounded-3xl border border-amber-300 shadow-xl space-y-6 text-center animate-fadeIn">
@@ -111,7 +117,7 @@ export const ProtectedRoute = ({ children, allowedRole }) => {
       );
     }
 
-    if (effectiveStatus === 'rejected') {
+    if (effectiveVerification === 'rejected') {
       const rejectionReason = liveHospital?.rejectionReason || user.rejectionReason || 'Statutory documentation incomplete or compliance requirements not met.';
       return (
         <div className="min-h-[calc(100vh-8rem)] flex items-center justify-center p-4 sm:p-6 lg:p-8 bg-slate-50">

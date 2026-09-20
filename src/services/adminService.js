@@ -32,7 +32,7 @@ export const adminService = {
       if (response.ok) {
         const body = await response.json();
         const rep = body?.data;
-        if (rep) {
+        if (rep && (rep.hospitals || rep.medicines || rep.orders || rep.requests)) {
           return {
             stats: {
               totalHospitals: rep.hospitals?.total || 0,
@@ -41,7 +41,7 @@ export const adminService = {
               totalMedicines: rep.medicines?.total || 0,
               lowStock: rep.medicines?.lowStock || 0,
               expiringSoon: rep.medicines?.expiringSoon || 0,
-              pendingOrders: rep.orders?.daily || 0,
+              pendingOrders: rep.requests?.pending ?? rep.orders?.pending ?? 0,
               totalOrders: rep.orders?.total || 0,
             },
             medicineStockOverview: [
@@ -86,12 +86,13 @@ export const adminService = {
     let expiringSoonCount = 0;
 
     medicines.forEach((med) => {
-      const exp = calculateMedicineExpiry(med.expiryDate, med.mfgDate, med.quantity, med.minStockLevel || 20);
+      const minStock = Number(med.minStockLevel ?? med.reorder_level ?? 0);
+      const exp = calculateMedicineExpiry(med.expiryDate, med.mfgDate, med.quantity, minStock);
       if (exp.isExpired) {
         expiredCount += 1;
       } else if (Number(med.quantity || 0) === 0) {
         outOfStockCount += 1;
-      } else if (exp.isLowStock || Number(med.quantity || 0) <= (med.minStockLevel || 20)) {
+      } else if (exp.isLowStock || Number(med.quantity || 0) <= minStock) {
         lowStockCount += 1;
       } else {
         inStockCount += 1;
@@ -105,14 +106,20 @@ export const adminService = {
     // Orders status counts
     const ordersCounts = {
       pending: requests.filter((r) => r.status === 'pending').length,
-      processing: requests.filter((r) => r.status === 'accepted' || r.status === 'processing').length,
+      processing: requests.filter((r) => r.status === 'accepted' || r.status === 'approved' || r.status === 'processing').length,
       shipped: requests.filter((r) => r.status === 'dispatched' || r.status === 'shipped').length,
-      delivered: requests.filter((r) => r.status === 'delivered' || r.status === 'paid').length,
+      delivered: requests.filter((r) => r.status === 'delivered' || r.status === 'paid' || r.status === 'completed').length,
       cancelled: requests.filter((r) => r.status === 'rejected' || r.status === 'cancelled').length,
     };
 
-    const verifiedHospitalsCount = hospitals.filter((h) => h.status === 'verified' || h.status === 'approved' || h.status === 'APPROVED').length;
-    const pendingHospitalsCount = hospitals.filter((h) => h.status === 'pending' || h.status === 'under_review' || h.status === 'PENDING_APPROVAL').length;
+    const verifiedHospitalsCount = hospitals.filter((h) => {
+      const v = (h.verification_status || h.verificationStatus || h.status || '').toLowerCase();
+      return v === 'verified' || v === 'approved';
+    }).length;
+    const pendingHospitalsCount = hospitals.filter((h) => {
+      const v = (h.verification_status || h.verificationStatus || h.status || '').toLowerCase();
+      return v === 'pending' || v === 'under_review' || v === 'pending_approval';
+    }).length;
 
     // 8 Required Summary Cards
     const summaryCards = {
@@ -211,16 +218,8 @@ export const adminService = {
       const json = await response.json().catch(() => null);
       if (response.ok && json?.success && json?.data) {
         const list = Array.isArray(json.data) ? json.data : (json.data.hospitals || []);
-        if (list.length > 0) {
-          // Merge into local cache
-          const localHospitals = getStoredItem(KEYS.HOSPITALS, []);
-          const merged = [...localHospitals];
-          list.forEach((item) => {
-            const idx = merged.findIndex((h) => h.id === item.id);
-            if (idx !== -1) merged[idx] = { ...merged[idx], ...item };
-            else merged.unshift(item);
-          });
-          setStoredItem(KEYS.HOSPITALS, merged);
+        if (Array.isArray(list)) {
+          setStoredItem(KEYS.HOSPITALS, list);
           return list;
         }
       }
@@ -232,11 +231,15 @@ export const adminService = {
     const hospitals = getStoredItem(KEYS.HOSPITALS, []);
     if (!filterStatus || filterStatus === 'all') return hospitals;
     return hospitals.filter((h) => {
+      const v = (h.verification_status || h.verificationStatus || h.status || '').toLowerCase();
       const s = (h.status || '').toLowerCase();
       const f = filterStatus.toLowerCase();
-      if (f === 'verified' || f === 'approved') return s === 'verified' || s === 'approved';
-      if (f === 'pending') return s === 'pending' || s === 'pending_approval';
-      return s === f;
+      if (f === 'verified' || f === 'approved') return v === 'verified' || v === 'approved';
+      if (f === 'pending') return v === 'pending' || v === 'pending_approval';
+      if (f === 'rejected') return v === 'rejected';
+      if (f === 'active') return s === 'active';
+      if (f === 'inactive') return s === 'inactive';
+      return v === f || s === f;
     });
   },
 
@@ -244,24 +247,33 @@ export const adminService = {
     assertAdminSession();
 
     // 1. Call real API
+    let response = null;
+    let json = null;
     try {
-      const response = await fetch(`${API_BASE}/admin/hospitals/${hospitalId}/approve`, {
+      response = await fetch(`${API_BASE}/admin/hospitals/${hospitalId}/approve`, {
         method: 'PATCH',
         headers: getAuthHeaders(),
       });
-      const json = await response.json().catch(() => null);
-      if (response.ok && json?.success) {
+      json = await response.json().catch(() => null);
+    } catch (netErr) {
+      // Network unreachable
+    }
+
+    if (response) {
+      if (!response.ok) {
+        throw new Error(json?.message || json?.error || `Failed to verify hospital (${response.status})`);
+      }
+      if (json?.success) {
         const hospital = json.data.hospital || json.data;
         const hospitals = getStoredItem(KEYS.HOSPITALS, []);
         const idx = hospitals.findIndex((h) => h.id === hospitalId);
         if (idx !== -1) {
-          hospitals[idx] = { ...hospitals[idx], status: 'approved', verifiedDate: new Date().toISOString().split('T')[0] };
+          hospitals[idx] = { ...hospitals[idx], ...hospital, verification_status: 'verified', status: 'active', verifiedDate: new Date().toISOString().split('T')[0] };
           setStoredItem(KEYS.HOSPITALS, hospitals);
         }
         return hospital;
       }
-    } catch (e) {
-      // fallback
+      throw new Error(json?.message || 'Failed to verify hospital');
     }
 
     await new Promise((r) => setTimeout(r, 300));
@@ -270,7 +282,8 @@ export const adminService = {
     if (index === -1) throw new Error('Hospital not found');
 
     const hospital = hospitals[index];
-    hospital.status = 'verified';
+    hospital.verification_status = 'verified';
+    hospital.status = 'active';
     hospital.verifiedDate = new Date().toISOString().split('T')[0];
     hospital.rejectionReason = null;
     hospital.isDemoSimulation = true;
@@ -296,25 +309,34 @@ export const adminService = {
     assertAdminSession();
 
     // 1. Call real API
+    let response = null;
+    let json = null;
     try {
-      const response = await fetch(`${API_BASE}/admin/hospitals/${hospitalId}/reject`, {
+      response = await fetch(`${API_BASE}/admin/hospitals/${hospitalId}/reject`, {
         method: 'PATCH',
         headers: getAuthHeaders(),
         body: JSON.stringify({ reason }),
       });
-      const json = await response.json().catch(() => null);
-      if (response.ok && json?.success) {
+      json = await response.json().catch(() => null);
+    } catch (netErr) {
+      // Network unreachable
+    }
+
+    if (response) {
+      if (!response.ok) {
+        throw new Error(json?.message || json?.error || `Failed to reject hospital (${response.status})`);
+      }
+      if (json?.success) {
         const hospital = json.data.hospital || json.data;
         const hospitals = getStoredItem(KEYS.HOSPITALS, []);
         const idx = hospitals.findIndex((h) => h.id === hospitalId);
         if (idx !== -1) {
-          hospitals[idx] = { ...hospitals[idx], status: 'rejected', rejectionReason: reason };
+          hospitals[idx] = { ...hospitals[idx], ...hospital, verification_status: 'rejected', status: 'inactive', rejectionReason: reason };
           setStoredItem(KEYS.HOSPITALS, hospitals);
         }
         return hospital;
       }
-    } catch (e) {
-      // fallback
+      throw new Error(json?.message || 'Failed to reject hospital');
     }
 
     await new Promise((r) => setTimeout(r, 300));
@@ -323,7 +345,8 @@ export const adminService = {
     if (index === -1) throw new Error('Hospital not found');
 
     const hospital = hospitals[index];
-    hospital.status = 'rejected';
+    hospital.verification_status = 'rejected';
+    hospital.status = 'inactive';
     hospital.rejectionReason = reason || 'Statutory documentation incomplete or failed compliance verification.';
     hospital.verifiedDate = null;
     hospital.isDemoSimulation = true;
@@ -568,8 +591,9 @@ export const adminService = {
         headers: getAuthHeaders(),
       });
       const json = await response.json().catch(() => null);
-      if (response.ok && json?.success && json?.data?.items) {
-        return json.data.items;
+      const items = json?.data?.items || json?.data?.medicines || (Array.isArray(json?.data) ? json.data : null);
+      if (response.ok && json?.success && items) {
+        return items;
       }
     } catch (e) {
       // fallback
@@ -583,21 +607,30 @@ export const adminService = {
     assertAdminSession();
 
     // 1. Call real API
+    let response = null;
+    let json = null;
     try {
-      const response = await fetch(`${API_BASE}/medicines`, {
+      response = await fetch(`${API_BASE}/medicines`, {
         method: 'POST',
         headers: getAuthHeaders(),
         body: JSON.stringify(medicineData),
       });
-      const json = await response.json().catch(() => null);
-      if (response.ok && json?.success && json?.data) {
+      json = await response.json().catch(() => null);
+    } catch (e) {
+      // network unreachable
+    }
+
+    if (response) {
+      if (!response.ok) {
+        throw new Error(json?.message || json?.error || `Failed to add medicine (${response.status})`);
+      }
+      if (json?.success && json?.data) {
         const masterMeds = getStoredItem(KEYS.MASTER_MEDICINES, []);
         masterMeds.unshift(json.data);
         setStoredItem(KEYS.MASTER_MEDICINES, masterMeds);
         return json.data;
       }
-    } catch (e) {
-      // fallback
+      throw new Error(json?.message || 'Failed to add medicine');
     }
 
     // Admin creates medicine in the Master Catalogue ONLY
@@ -660,14 +693,24 @@ export const adminService = {
     assertAdminSession();
 
     // 1. Call real API
+    let response = null;
+    let json = null;
     try {
-      const response = await fetch(`${API_BASE}/medicines/${id}`, {
+      response = await fetch(`${API_BASE}/medicines/${id}`, {
         method: 'PATCH',
         headers: getAuthHeaders(),
         body: JSON.stringify(updatedData),
       });
-      const json = await response.json().catch(() => null);
-      if (response.ok && json?.success && json?.data) {
+      json = await response.json().catch(() => null);
+    } catch (e) {
+      // network unreachable
+    }
+
+    if (response) {
+      if (!response.ok) {
+        throw new Error(json?.message || json?.error || `Failed to update medicine (${response.status})`);
+      }
+      if (json?.success && json?.data) {
         const masterMeds = getStoredItem(KEYS.MASTER_MEDICINES, []);
         const idx = masterMeds.findIndex((m) => m.id === id);
         if (idx !== -1) {
@@ -676,8 +719,7 @@ export const adminService = {
         }
         return json.data;
       }
-    } catch (e) {
-      // fallback
+      throw new Error(json?.message || 'Failed to update medicine');
     }
 
     await new Promise((r) => setTimeout(r, 200));
@@ -726,20 +768,29 @@ export const adminService = {
     assertAdminSession();
 
     // 1. Call real API
+    let response = null;
+    let json = null;
     try {
-      const response = await fetch(`${API_BASE}/medicines/${id}`, {
+      response = await fetch(`${API_BASE}/medicines/${id}`, {
         method: 'DELETE',
         headers: getAuthHeaders(),
       });
-      const json = await response.json().catch(() => null);
-      if (response.ok && json?.success) {
+      json = await response.json().catch(() => null);
+    } catch (e) {
+      // network unreachable
+    }
+
+    if (response) {
+      if (!response.ok) {
+        throw new Error(json?.message || json?.error || `Failed to delete medicine (${response.status})`);
+      }
+      if (json?.success) {
         const masterMeds = getStoredItem(KEYS.MASTER_MEDICINES, []);
         const filtered = masterMeds.filter((m) => m.id !== id);
         setStoredItem(KEYS.MASTER_MEDICINES, filtered);
         return true;
       }
-    } catch (e) {
-      // fallback
+      throw new Error(json?.message || 'Failed to delete medicine');
     }
 
     await new Promise((r) => setTimeout(r, 200));
@@ -882,8 +933,11 @@ export const adminService = {
       });
       if (response.ok) {
         const json = await response.json().catch(() => null);
-        if (json?.success && Array.isArray(json?.data) && json.data.length > 0) {
-          return json.data;
+        if (json?.success && json?.data) {
+          const list = Array.isArray(json.data) ? json.data : (json.data.transfers || []);
+          if (Array.isArray(list)) {
+            return list;
+          }
         }
       }
     } catch (e) {
@@ -896,14 +950,35 @@ export const adminService = {
 
   async updateTransferStatus(transactionId, newStatus) {
     assertAdminSession();
+    let response = null;
+    let json = null;
     try {
-      await fetch(`${API_BASE}/transfers/${encodeURIComponent(transactionId)}/status`, {
+      response = await fetch(`${API_BASE}/transfers/${encodeURIComponent(transactionId)}/status`, {
         method: 'PATCH',
         headers: getAuthHeaders(),
         body: JSON.stringify({ status: newStatus }),
       });
+      json = await response.json().catch(() => null);
     } catch (e) {
       // offline fallback
+    }
+
+    if (response) {
+      if (!response.ok) {
+        throw new Error(json?.message || json?.error || `Failed to update transfer status (${response.status})`);
+      }
+      const trackingList = getStoredItem(KEYS.TRACKING, []);
+      const index = trackingList.findIndex((t) => t.transactionId === transactionId || t.id === transactionId);
+      if (index !== -1) {
+        trackingList[index].status = newStatus;
+        if (trackingList[index].timeline) {
+          const match = trackingList[index].timeline.find((t) => t.step.toLowerCase().includes(newStatus.toLowerCase()));
+          if (match) match.completed = true;
+        }
+        setStoredItem(KEYS.TRACKING, trackingList);
+        return trackingList[index];
+      }
+      return json?.data?.transfer || { transactionId, status: newStatus };
     }
 
     await new Promise((r) => setTimeout(r, 250));
@@ -986,7 +1061,7 @@ export const adminService = {
       });
       if (response.ok) {
         const json = await response.json().catch(() => null);
-        if (json?.success && Array.isArray(json?.data) && json.data.length > 0) {
+        if (json?.success && Array.isArray(json?.data)) {
           return json.data;
         }
       }
@@ -1002,14 +1077,34 @@ export const adminService = {
 
   async replyFeedback(id, replyText) {
     assertAdminSession();
+    let response = null;
+    let json = null;
     try {
-      await fetch(`${API_BASE}/feedback/${encodeURIComponent(id)}/reply`, {
+      response = await fetch(`${API_BASE}/feedback/${encodeURIComponent(id)}/reply`, {
         method: 'PATCH',
         headers: getAuthHeaders(),
         body: JSON.stringify({ replyText }),
       });
+      json = await response.json().catch(() => null);
     } catch (e) {
       // fallback
+    }
+
+    if (response) {
+      if (!response.ok) {
+        throw new Error(json?.message || json?.error || `Failed to reply to feedback (${response.status})`);
+      }
+      const feedbacks = getStoredItem(KEYS.FEEDBACKS, []);
+      const index = feedbacks.findIndex((f) => f.id === id);
+      if (index !== -1) {
+        feedbacks[index].adminReply = replyText;
+        feedbacks[index].repliedDate = new Date().toISOString().split('T')[0];
+        if (feedbacks[index].status === 'new') {
+          feedbacks[index].status = 'under_review';
+        }
+        setStoredItem(KEYS.FEEDBACKS, feedbacks);
+      }
+      return json?.data || (index !== -1 ? feedbacks[index] : { id, adminReply: replyText, status: 'under_review' });
     }
 
     await new Promise((r) => setTimeout(r, 250));
@@ -1040,14 +1135,30 @@ export const adminService = {
 
   async updateFeedbackStatus(id, newStatus) {
     assertAdminSession();
+    let response = null;
+    let json = null;
     try {
-      await fetch(`${API_BASE}/feedback/${encodeURIComponent(id)}/status`, {
+      response = await fetch(`${API_BASE}/feedback/${encodeURIComponent(id)}/status`, {
         method: 'PATCH',
         headers: getAuthHeaders(),
         body: JSON.stringify({ status: newStatus }),
       });
+      json = await response.json().catch(() => null);
     } catch (e) {
       // fallback
+    }
+
+    if (response) {
+      if (!response.ok) {
+        throw new Error(json?.message || json?.error || `Failed to update feedback status (${response.status})`);
+      }
+      const feedbacks = getStoredItem(KEYS.FEEDBACKS, []);
+      const index = feedbacks.findIndex((f) => f.id === id);
+      if (index !== -1) {
+        feedbacks[index].status = newStatus;
+        setStoredItem(KEYS.FEEDBACKS, feedbacks);
+      }
+      return json?.data?.feedback || json?.data || (index !== -1 ? feedbacks[index] : { id, status: newStatus });
     }
 
     await new Promise((r) => setTimeout(r, 200));
@@ -1739,22 +1850,22 @@ export const adminService = {
 
     const orders = requests.map((req, idx) => {
       const fromHosp = hospitals.find((h) => h.id === req.fromHospitalId) || {
-        id: req.fromHospitalId || 'hosp-1',
-        name: req.fromHospitalName || 'Apollo Hospital',
+        id: req.fromHospitalId || null,
+        name: req.fromHospitalName || 'Requester Hospital',
         city: 'Mumbai',
         state: 'Maharashtra',
-        phone: '+91 98201 54321',
-        email: 'apollo@medex.org',
-        registrationNo: 'MH-GOV-8821',
+        phone: '',
+        email: '',
+        registrationNo: '',
       };
       const toHosp = hospitals.find((h) => h.id === req.toHospitalId) || {
-        id: req.toHospitalId || 'hosp-2',
-        name: req.toHospitalName || 'Fortis Memorial Research Institute',
-        city: 'Gurgaon',
-        state: 'Haryana',
-        phone: '+91 98112 33445',
-        email: 'fortis@medex.org',
-        registrationNo: 'HR-MED-4412',
+        id: req.toHospitalId || null,
+        name: req.toHospitalName || 'Supplier Hospital',
+        city: '',
+        state: '',
+        phone: '',
+        email: '',
+        registrationNo: '',
       };
       const med = medicines.find((m) => m.id === req.medicineId);
 
@@ -2225,7 +2336,41 @@ export const adminService = {
       });
       if (response.ok) {
         const body = await response.json();
-        if (body?.data) return body.data;
+        if (body?.data) {
+          const raw = body.data;
+          return {
+            ...raw,
+            hospitals: raw.hospitals || {
+              total: 0,
+              verified: 0,
+              newRegistrations: 0,
+              rejected: 0,
+              suspended: 0,
+            },
+            medicines: raw.medicines || {
+              total: 0,
+              lowStock: 0,
+              outOfStock: 0,
+              expired: 0,
+              expiringSoon: 0,
+              mostRequested: [],
+            },
+            orders: raw.orders || {
+              total: 0,
+              daily: 0,
+              weekly: 0,
+              monthly: 0,
+              hospitalWise: [],
+            },
+            feedback: raw.feedback || {
+              total: 0,
+              resolved: 0,
+              unresolved: 0,
+              averageRating: '0.0',
+              categoryWise: [],
+            },
+          };
+        }
       }
     } catch (err) {
       console.warn('Backend admin/reports unavailable, using fallback:', err.message);
@@ -2238,11 +2383,19 @@ export const adminService = {
     const feedbacks = getStoredItem(KEYS.FEEDBACKS, []);
 
     // 1. Hospital reports
-    const totalHospitals = hospitals.length;
-    const verifiedHospitals = hospitals.filter((h) => h.status === 'verified').length;
-    const rejectedHospitals = hospitals.filter((h) => h.status === 'rejected').length;
-    const suspendedHospitals = hospitals.filter((h) => h.status === 'suspended').length;
-    const newRegistrations = hospitals.filter((h) => h.status === 'pending' || h.status === 'under_review').length;
+    const verifiedHospitals = hospitals.filter((h) => {
+      const v = (h.verification_status || h.verificationStatus || h.status || '').toLowerCase();
+      return v === 'verified' || v === 'approved';
+    }).length;
+    const rejectedHospitals = hospitals.filter((h) => {
+      const v = (h.verification_status || h.verificationStatus || h.status || '').toLowerCase();
+      return v === 'rejected';
+    }).length;
+    const suspendedHospitals = hospitals.filter((h) => (h.status || '').toLowerCase() === 'suspended').length;
+    const newRegistrations = hospitals.filter((h) => {
+      const v = (h.verification_status || h.verificationStatus || h.status || '').toLowerCase();
+      return v === 'pending' || v === 'under_review';
+    }).length;
 
     // 2. Medicine reports
     let lowStock = 0;
@@ -2251,10 +2404,11 @@ export const adminService = {
     let expiringSoon = 0;
 
     medicines.forEach((m) => {
-      const exp = calculateMedicineExpiry(m.expiryDate, m.mfgDate, m.quantity, m.minStockLevel || 20);
+      const minStock = Number(m.minStockLevel ?? m.reorder_level ?? 0);
+      const exp = calculateMedicineExpiry(m.expiryDate, m.mfgDate, m.quantity, minStock);
       if (exp.isExpired) expired += 1;
       else if (Number(m.quantity || 0) === 0) outOfStock += 1;
-      else if (Number(m.quantity || 0) <= (m.minStockLevel || 20)) lowStock += 1;
+      else if (Number(m.quantity || 0) <= minStock) lowStock += 1;
 
       if (exp.isNearExpiry && !exp.isExpired) expiringSoon += 1;
     });
