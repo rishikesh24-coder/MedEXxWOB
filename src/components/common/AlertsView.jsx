@@ -84,7 +84,7 @@ export const AlertsView = ({
   const counts = useMemo(() => {
     const res = { ALL: alerts.length, CRITICAL: 0, WARNING: 0, INFORMATION: 0, unread: 0 };
     alerts.forEach((a) => {
-      if (!a.read) res.unread += 1;
+      if (!a.read && a.status !== 'resolved') res.unread += 1;
       const cat = getNormalizedCategory(a);
       if (cat === 'CRITICAL') res.CRITICAL += 1;
       else if (cat === 'WARNING') res.WARNING += 1;
@@ -97,7 +97,7 @@ export const AlertsView = ({
     return alerts.filter((a) => {
       const normCat = getNormalizedCategory(a);
       const matchesTab = activeTab === 'ALL' || normCat === activeTab;
-      const matchesUnread = !unreadOnly || !a.read;
+      const matchesUnread = !unreadOnly || (!a.read && a.status !== 'resolved');
       const descText = (a.description || a.desc || a.message || '').toLowerCase();
       const titleText = (a.title || '').toLowerCase();
       const relatedText = (a.relatedItem || a.medicineName || a.batchNo || '').toLowerCase();
@@ -364,10 +364,16 @@ export const AlertsView = ({
                         {alert.category || normCat}
                       </span>
 
-                      {!alert.read && (
+                      {!alert.read && alert.status !== 'resolved' && (
                         <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-teal-600 text-white">
                           <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping" />
                           New
+                        </span>
+                      )}
+
+                      {alert.status === 'resolved' && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-slate-100 text-slate-700 border border-slate-200">
+                          Resolved
                         </span>
                       )}
 

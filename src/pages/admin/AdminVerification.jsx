@@ -59,7 +59,8 @@ export const normalizeHospitalStatus = (status) => {
 
 export const matchesHospitalTab = (hospital, tab) => {
   if (tab === 'all') return true;
-  const norm = normalizeHospitalStatus(hospital?.status);
+  const rawStatus = hospital?.verification_status || hospital?.verificationStatus || (['verified', 'approved', 'pending', 'pending_approval', 'under_review', 'rejected'].includes(String(hospital?.status || '').toLowerCase()) ? hospital.status : '');
+  const norm = normalizeHospitalStatus(rawStatus || 'pending');
   const targetTab = (tab === 'approved' || tab === 'verified') ? 'verified' : tab;
   return norm === targetTab;
 };
@@ -251,7 +252,7 @@ export const AdminVerification = () => {
       setActiveReviewHospital(null);
       setReviewNoteInput('');
     } catch (err) {
-      toast.error('Approval failed. Please try again.');
+      toast.error(err?.message || err || 'Approval failed. Please try again.');
     } finally {
       setIsApproving(false);
     }
@@ -278,7 +279,7 @@ export const AdminVerification = () => {
       setOtherExplanation('');
       setReviewNoteInput('');
     } catch (err) {
-      toast.error('Failed to record rejection');
+      toast.error(err?.message || err || 'Failed to record rejection');
     } finally {
       setIsRejecting(false);
     }
@@ -578,7 +579,7 @@ export const AdminVerification = () => {
                       <h3 className="font-bold text-sm sm:text-base text-slate-900 group-hover:text-primary-700 transition-colors">
                         {hosp.name}
                       </h3>
-                      <StatusBadge status={hosp.status} className="!text-[10px] !px-2.5 !py-0.5" />
+                      <StatusBadge status={hosp.verification_status || hosp.status} className="!text-[10px] !px-2.5 !py-0.5" />
                     </div>
 
                     <div className="flex flex-wrap items-center gap-y-1 gap-x-3 text-xs text-slate-500">
@@ -670,7 +671,7 @@ export const AdminVerification = () => {
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
                   <span className="font-bold text-slate-900 text-sm">{activeReviewHospital.name}</span>
-                  <StatusBadge status={activeReviewHospital.status} />
+                  <StatusBadge status={activeReviewHospital.verification_status || activeReviewHospital.status} />
                 </div>
                 <p className="text-slate-500">
                   {activeReviewHospital.city || '—'}, {activeReviewHospital.state || '—'} {activeReviewHospital.pincode ? `(${activeReviewHospital.pincode})` : ''}

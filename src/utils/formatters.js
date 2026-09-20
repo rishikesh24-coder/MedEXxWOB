@@ -97,13 +97,13 @@ export function normalizeMedicine(med) {
   const numPrice = Number(rawPrice);
   const safePrice = Number.isFinite(numPrice) ? Math.max(0, numPrice) : 0;
 
-  const rawQty = med.quantity ?? med.stock ?? 0;
+  const rawQty = med.quantity ?? med.availableQuantity ?? med.stock ?? 0;
   const numQty = Number(rawQty);
   const safeQty = Number.isFinite(numQty) ? Math.max(0, Math.floor(numQty)) : 0;
 
-  const rawMinStock = med.minStockLevel ?? med.minStock ?? med.minStockThreshold ?? 20;
+  const rawMinStock = med.minStockLevel ?? med.reorder_level ?? med.reorderLevel ?? med.minStockThreshold ?? 0;
   const numMinStock = Number(rawMinStock);
-  const safeMinStock = Number.isFinite(numMinStock) ? Math.max(0, Math.floor(numMinStock)) : 20;
+  const safeMinStock = Number.isFinite(numMinStock) ? Math.max(0, Math.floor(numMinStock)) : 0;
 
   const rawConcession = med.concessionPercent ?? med.discountPercent ?? 0;
   const numConcession = Number(rawConcession);
@@ -117,8 +117,13 @@ export function normalizeMedicine(med) {
   const generic = safeString(med.genericName || med.composition, brand);
   const power = safeString(med.power || med.strength || med.dosage, 'Standard Dosage');
   const form = safeString(med.dosageForm || med.form, 'Tablet');
-  const batchNo = safeString(med.batchNo || med.batchNumber || med.batch, 'BAT-UNREGISTERED');
+  const rawBatch = med.batchNo ?? med.batch_number ?? med.batchNumber ?? med.batch;
+  const batchNo = rawBatch ? String(rawBatch).trim() : 'BAT-UNREGISTERED';
   const hospital = safeString(med.hospitalName || med.hospital || med.seller, 'Authorized Hospital Node');
+  const rawExpiry = med.expiryDate ?? med.expiry_date ?? med.expiry;
+  const expiryDate = rawExpiry ? String(rawExpiry).trim() : '2025-12-31';
+  const rawStorage = med.storageType ?? med.storage_location ?? med.storageLocation ?? med.storageCondition;
+  const storageType = safeString(rawStorage, 'Room Temperature (15°C - 25°C)');
 
   return {
     ...med,
@@ -130,20 +135,28 @@ export function normalizeMedicine(med) {
     dosageForm: form,
     form,
     route: safeString(med.route, 'Oral'),
-    hospitalId: med.hospitalId || 'hosp-1',
+    hospitalId: med.hospitalId || med.hospital_id || null,
     hospitalName: hospital,
     location: safeString(med.location || med.city, 'Mumbai, Maharashtra'),
     distanceKm: safeDistance,
     batchNo,
+    batchNumber: batchNo,
+    batch_number: batchNo,
     mfgDate: med.mfgDate || med.manufacturingDate || '2024-01-01',
-    expiryDate: med.expiryDate || med.expiry || '2025-12-31',
+    expiryDate,
+    expiry_date: expiryDate,
     manufacturer: safeString(med.manufacturer, 'Standard Pharma Industries'),
     packSize: safeString(med.packSize || med.unit, '10 x 10 Blister'),
-    storageType: safeString(med.storageType, 'Room Temperature (15°C - 25°C)'),
+    storageType,
+    storageLocation: med.storage_location || med.storageLocation || storageType,
+    storage_location: med.storage_location || med.storageLocation || storageType,
     category: safeString(med.category, 'General Formulation'),
     quantity: safeQty,
+    availableQuantity: safeQty,
     stock: safeQty,
     minStockLevel: safeMinStock,
+    reorderLevel: safeMinStock,
+    reorder_level: safeMinStock,
     unitOriginalPrice: safePrice,
     price: safePrice,
     unitPrice: safePrice,

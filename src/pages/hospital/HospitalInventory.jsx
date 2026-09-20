@@ -184,9 +184,16 @@ export const HospitalInventory = () => {
     return getLiveHospitalRecord(user?.id) || user;
   }, [user]);
 
-  const currentStatus = (liveHospital?.status || user?.status || 'verified').toLowerCase();
-  const isOperationalLocked = currentStatus !== 'verified';
+  const currentVerification = (
+    liveHospital?.verification_status ||
+    liveHospital?.verificationStatus ||
+    (['verified', 'approved', 'pending', 'pending_approval', 'under_review', 'rejected'].includes((liveHospital?.status || '').toLowerCase())
+      ? liveHospital.status
+      : (user?.verification_status || 'verified'))
+  ).toLowerCase();
+  const currentStatus = (liveHospital?.status || user?.status || 'active').toLowerCase();
   const isSuspended = currentStatus === 'suspended';
+  const isOperationalLocked = (currentVerification !== 'verified' && currentVerification !== 'approved') || isSuspended || currentStatus === 'inactive';
 
   // Filter & Search states
   const [searchTerm, setSearchTerm] = useState('');
@@ -410,7 +417,7 @@ export const HospitalInventory = () => {
 
     inventory.forEach((med) => {
       const isDisposed = med.status === 'disposed';
-      const minStock = Number(med.minStockLevel || 20);
+      const minStock = Number(med.minStockLevel ?? med.reorder_level ?? med.reorderLevel ?? 0);
       const qty = Number(med.quantity) || 0;
       const exp = calculateMedicineExpiry(med.expiryDate, qty);
 
@@ -449,7 +456,7 @@ export const HospitalInventory = () => {
     return inventory.map((med) => {
       const isDisposed = med.status === 'disposed';
       const isDisposalRequested = med.status === 'pending_disposal' || med.status === 'disposal_requested';
-      const minStock = Number(med.minStockLevel || 20);
+      const minStock = Number(med.minStockLevel ?? med.reorder_level ?? med.reorderLevel ?? 0);
       const qty = Number(med.quantity) || 0;
       const expiryMeta = calculateMedicineExpiry(med.expiryDate, qty);
       const form = getMedicineForm(med);
@@ -550,10 +557,12 @@ export const HospitalInventory = () => {
 
   const handleOpenAdd = () => {
     if (isOperationalLocked) {
-      if (currentStatus === 'pending' || currentStatus === 'under_review') {
+      if (currentVerification === 'pending' || currentVerification === 'under_review' || currentVerification === 'pending_approval') {
         toast.error('Hospital registration is under review. Inventory additions will be enabled once verified.');
-      } else if (currentStatus === 'suspended') {
+      } else if (isSuspended) {
         toast.error('Your hospital account is currently suspended. Operational activities are locked.');
+      } else if (currentStatus === 'inactive') {
+        toast.error('Your hospital account is currently inactive. Operational activities are locked.');
       } else {
         toast.error('Your hospital registration was rejected. Operational activities are locked.');
       }
@@ -612,14 +621,14 @@ export const HospitalInventory = () => {
     }
     if (!deleteConfirmMed) return;
     try {
-      await dispatch(deleteMedicineItem(deleteConfirmMed.id));
+      await dispatch(deleteMedicineItem(deleteConfirmMed.id)).unwrap();
       toast.success(`Removed ${deleteConfirmMed.brandName} from hospital inventory`);
       setDeleteConfirmMed(null);
       if (selectedMedicineForDetails?.id === deleteConfirmMed.id) {
         setSelectedMedicineForDetails(null);
       }
     } catch (err) {
-      toast.error('Failed to delete medicine: ' + err.message);
+      toast.error('Failed to delete medicine: ' + (err?.message || err));
     }
   };
 
@@ -680,9 +689,9 @@ export const HospitalInventory = () => {
       {/* Compliance Status Operational Notice (Section 11 Requirement) */}
       {isOperationalLocked && (
         <div className={`p-4 rounded-2xl border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs ${
-          currentStatus === 'pending' || currentStatus === 'under_review'
+          currentVerification === 'pending' || currentVerification === 'under_review' || currentVerification === 'pending_approval'
             ? 'bg-amber-500/10 border-amber-500/30 text-amber-950'
-            : currentStatus === 'suspended'
+            : isSuspended
             ? 'bg-purple-500/10 border-purple-500/30 text-purple-950'
             : 'bg-rose-500/10 border-rose-500/30 text-rose-950'
         }`}>
@@ -690,12 +699,12 @@ export const HospitalInventory = () => {
             <AlertCircle className="w-5 h-5 shrink-0 text-current mt-0.5" />
             <div>
               <div className="font-bold text-sm">
-                Operational Stock Management Restricted • Status: <span className="capitalize">{currentStatus.replace('_', ' ')}</span>
+                Operational Stock Management Restricted • Status: <span className="capitalize">{currentVerification.replace('_', ' ')}</span>
               </div>
               <p className="text-xs opacity-90 mt-0.5">
-                {currentStatus === 'pending' || currentStatus === 'under_review' ? (
+                {currentVerification === 'pending' || currentVerification === 'under_review' || currentVerification === 'pending_approval' ? (
                   <span>Your hospital registration is currently under review. Stock operations (adding, updating, or importing medicines) will be unlocked once MEDEX Administration validates your regulatory documents.</span>
-                ) : currentStatus === 'suspended' ? (
+                ) : isSuspended ? (
                   <span>Your hospital account is suspended ({liveHospital?.suspensionReason || 'Administrative hold'}). Operational stock modifications are disabled.</span>
                 ) : (
                   <span>Your hospital registration was rejected ({liveHospital?.rejectionReason || 'Documentation declined'}). Operational stock modifications are disabled.</span>
@@ -1359,11 +1368,11 @@ export const HospitalInventory = () => {
                 <div className="grid grid-cols-2 gap-3 p-4 rounded-2xl bg-slate-50 border border-slate-100">
                   <div>
                     <span className="text-[10px] text-slate-400 block font-medium">Hospital Name</span>
-                    <strong className="text-slate-800">{selectedMedicineForDetails.hospitalName || user?.name || 'Apollo Hospital'}</strong>
+                    <strong className="text-slate-800">{selectedMedicineForDetails.hospitalName || user?.hospitalName || user?.name || 'Hospital Facility'}</strong>
                   </div>
                   <div>
                     <span className="text-[10px] text-slate-400 block font-medium">Hospital ID</span>
-                    <strong className="font-mono text-primary-700">{selectedMedicineForDetails.hospitalId || user?.id || 'hosp-1'}</strong>
+                    <strong className="font-mono text-primary-700">{selectedMedicineForDetails.hospitalId || user?.hospitalId || user?.id || '—'}</strong>
                   </div>
                   <div className="col-span-2">
                     <span className="text-[10px] text-slate-400 block font-medium">Location</span>
@@ -1438,7 +1447,9 @@ export const HospitalInventory = () => {
                   </div>
                   <div>
                     <span className="text-[10px] text-slate-400 block font-medium">Minimum Stock Level</span>
-                    <strong className="font-mono text-base text-slate-800">{selectedMedicineForDetails.reorderLevel || selectedMedicineForDetails.minStock || selectedMedicineForDetails.minStockLevel || 20} Units</strong>
+                    <strong className="font-mono text-base text-slate-800">
+                    {selectedMedicineForDetails.minStockLevel ?? selectedMedicineForDetails.reorderLevel ?? selectedMedicineForDetails.reorder_level ?? selectedMedicineForDetails.minStock ?? 0} Units
+                  </strong>
                   </div>
                 </div>
               </div>
@@ -1496,7 +1507,9 @@ export const HospitalInventory = () => {
                     <span className="text-[10px] text-slate-400 block font-medium">Storage Condition</span>
                     <strong className="text-slate-800 flex items-center gap-1 mt-0.5">
                       <Thermometer className="w-3.5 h-3.5 text-cyan-600" />
-                      {selectedMedicineForDetails.storageCondition || selectedMedicineForDetails.storageType || 'Room Temperature (15°C - 25°C)'}
+                      <span className="font-medium text-slate-800">
+                        {selectedMedicineForDetails.storageLocation || selectedMedicineForDetails.storage_location || selectedMedicineForDetails.storageCondition || selectedMedicineForDetails.storageType || 'Room Temperature (15°C - 25°C)'}
+                      </span>
                     </strong>
                   </div>
                   <div>

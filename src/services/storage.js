@@ -504,7 +504,7 @@ export const initializeStorage = () => {
           const match = INITIAL_DISPOSALS.find((init) => init.id === d.id);
           return {
             ...d,
-            hospitalId: match?.hospitalId || 'hosp-1',
+            hospitalId: match?.hospitalId || null,
             wasteCategory: match?.wasteCategory || d.wasteCategory || 'Expired Pharmaceuticals',
             treatmentMethod: match?.treatmentMethod || 'High-Temperature Double-Chamber Incineration',
             manifestNumber: match?.manifestNumber || 'MPCB-BMW-MNF-' + Math.floor(10000 + Math.random() * 90000),
@@ -802,7 +802,13 @@ export const isHospitalOperational = (hospitalId) => {
   if (!hospitalId) return false;
   const hospitals = getStoredItem(KEYS.HOSPITALS, []);
   const hosp = hospitals.find((h) => h.id === hospitalId || h.email?.toLowerCase() === hospitalId?.toLowerCase());
-  return hosp ? hosp.status === 'verified' : false;
+  if (!hosp) return false;
+  const v = (hosp.verification_status || hosp.verificationStatus || hosp.status || '').toLowerCase();
+  const s = (hosp.status || '').toLowerCase();
+  if (s === 'suspended' || s === 'inactive' || v === 'rejected' || v === 'pending') {
+    return false;
+  }
+  return v === 'verified' || v === 'approved' || s === 'active';
 };
 
 export const MANDATORY_DOCUMENTS = [

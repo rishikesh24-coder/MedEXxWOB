@@ -55,9 +55,16 @@ export const MyRequests = () => {
     return getLiveHospitalRecord(user?.id) || user;
   }, [user]);
 
-  const currentStatus = (liveHospital?.status || user?.status || 'verified').toLowerCase();
-  const isOperationalLocked = currentStatus !== 'verified';
+  const currentVerification = (
+    liveHospital?.verification_status ||
+    liveHospital?.verificationStatus ||
+    (['verified', 'approved', 'pending', 'pending_approval', 'under_review', 'rejected'].includes((liveHospital?.status || '').toLowerCase())
+      ? liveHospital.status
+      : (user?.verification_status || 'verified'))
+  ).toLowerCase();
+  const currentStatus = (liveHospital?.status || user?.status || 'active').toLowerCase();
   const isSuspended = currentStatus === 'suspended';
+  const isOperationalLocked = (currentVerification !== 'verified' && currentVerification !== 'approved') || isSuspended || currentStatus === 'inactive';
 
   // Modal states
   const [selectedOrderForDetails, setSelectedOrderForDetails] = useState(null);
@@ -199,7 +206,7 @@ export const MyRequests = () => {
 
       // Purchase History: only orders where payment was completed AND order was received/delivered
       if (isPaid && isReceived) counts.purchases += 1;
-      if (s === 'accepted') counts.actionable += 1;
+      if (s === 'accepted' || s === 'approved') counts.actionable += 1;
       if (['paid', 'preparing', 'dispatched', 'shipped', 'in transit', 'in_transit'].includes(s)) counts.transit += 1;
       if (s === 'pending' || s === 'requested' || s === 'reviewing') counts.pending += 1;
       if (s === 'cancelled' || s === 'cancelled by buyer') counts.cancelled += 1;
@@ -225,7 +232,7 @@ export const MyRequests = () => {
           // 2. The order was successfully received/delivered by the hospital
           if (!isPaid || !isReceived) return false;
         } else if (activeTabFilter === 'actionable') {
-          if (s !== 'accepted') return false;
+          if (s !== 'accepted' && s !== 'approved') return false;
         } else if (activeTabFilter === 'transit') {
           if (!['paid', 'preparing', 'dispatched', 'shipped', 'in transit', 'in_transit'].includes(s)) return false;
         } else if (activeTabFilter === 'pending') {
@@ -237,18 +244,19 @@ export const MyRequests = () => {
         // 2. Order Status dropdown
         if (orderStatusFilter !== 'all') {
           if (orderStatusFilter === 'requested' && !(s === 'pending' || s === 'requested' || s === 'reviewing')) return false;
+          else if ((orderStatusFilter === 'accepted' || orderStatusFilter === 'approved') && !(s === 'accepted' || s === 'approved')) return false;
           else if (orderStatusFilter === 'in transit' && !(s === 'in transit' || s === 'in_transit')) return false;
           else if (orderStatusFilter === 'dispatched' && !(s === 'dispatched' || s === 'shipped')) return false;
           else if (orderStatusFilter === 'preparing' && !(s === 'preparing' || s === 'processing')) return false;
           else if (orderStatusFilter === 'cancelled' && !(s === 'cancelled' || s === 'cancelled by buyer')) return false;
           else if (orderStatusFilter === 'insufficient_stock' && !(s === 'insufficient_stock' || s === 'insufficient stock')) return false;
-          else if (!['requested', 'in transit', 'dispatched', 'preparing', 'cancelled', 'insufficient_stock'].includes(orderStatusFilter) && s !== orderStatusFilter) return false;
+          else if (!['requested', 'accepted', 'approved', 'in transit', 'dispatched', 'preparing', 'cancelled', 'insufficient_stock'].includes(orderStatusFilter) && s !== orderStatusFilter) return false;
         }
 
         // 3. Payment Status dropdown
         if (paymentStatusFilter !== 'all') {
           if (paymentStatusFilter === 'paid' && !isPaid) return false;
-          if (paymentStatusFilter === 'pending' && !(ps === 'pending' && s === 'accepted')) return false;
+          if (paymentStatusFilter === 'pending' && !(ps === 'pending' && (s === 'accepted' || s === 'approved'))) return false;
           if (paymentStatusFilter === 'failed' && ps !== 'failed') return false;
           if (paymentStatusFilter === 'refunded' && !(ps === 'refunded' || r.cancellation?.refundStatus)) return false;
         }
@@ -385,20 +393,20 @@ export const MyRequests = () => {
       {/* Compliance Status Notice */}
       {isOperationalLocked && (
         <div className={`p-4 rounded-2xl border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs ${
-          currentStatus === 'pending' || currentStatus === 'under_review'
+          currentVerification === 'pending' || currentVerification === 'under_review' || currentVerification === 'pending_approval'
             ? 'bg-amber-500/10 border-amber-500/30 text-amber-950'
-            : currentStatus === 'suspended'
+            : isSuspended
             ? 'bg-purple-500/10 border-purple-500/30 text-purple-950'
             : 'bg-rose-500/10 border-rose-500/30 text-rose-950'
         }`}>
           <div>
             <div className="font-bold text-sm">
-              Requisition Operations Restricted • Status: <span className="capitalize">{currentStatus.replace('_', ' ')}</span>
+              Requisition Operations Restricted • Status: <span className="capitalize">{currentVerification.replace('_', ' ')}</span>
             </div>
             <p className="text-xs opacity-90 mt-0.5">
-              {currentStatus === 'pending' || currentStatus === 'under_review' ? (
+              {currentVerification === 'pending' || currentVerification === 'under_review' || currentVerification === 'pending_approval' ? (
                 <span>Submitting new procurement requisitions is restricted until your facility accreditation is verified by MEDEX Administration.</span>
-              ) : currentStatus === 'suspended' ? (
+              ) : isSuspended ? (
                 <span>Your facility account has been suspended ({liveHospital?.suspensionReason || 'Administrative hold'}). Requisition submissions are disabled.</span>
               ) : (
                 <span>Your facility registration was rejected ({liveHospital?.rejectionReason || 'Documentation declined'}). Requisition submissions are disabled.</span>
@@ -499,7 +507,7 @@ export const MyRequests = () => {
             >
               <option value="all">All Statuses</option>
               <option value="requested">Requested</option>
-              <option value="accepted">Accepted</option>
+              <option value="accepted">Accepted / Approved</option>
               <option value="paid">Paid</option>
               <option value="preparing">Preparing</option>
               <option value="dispatched">Dispatched</option>
@@ -697,7 +705,7 @@ export const MyRequests = () => {
                             <XCircle className="w-3.5 h-3.5" />
                             <span>Failed</span>
                           </span>
-                        ) : s === 'accepted' ? (
+                        ) : (s === 'accepted' || s === 'approved') ? (
                           <span className="inline-flex items-center gap-1 text-amber-700 font-semibold">
                             <Clock className="w-3 h-3 text-amber-600" />
                             <span>Pending</span>
@@ -722,8 +730,8 @@ export const MyRequests = () => {
                       {/* Action */}
                       <td className="py-3.5 px-4 text-right" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-end gap-1.5">
-                          {/* Pay Now Button directly accessible if accepted */}
-                          {s === 'accepted' && !isPaid && !isFailed && (
+                          {/* Pay Now Button directly accessible if accepted or approved */}
+                          {(s === 'accepted' || s === 'approved') && !isPaid && !isFailed && (
                             <button
                               onClick={() => !isSuspended && setActivePaymentReq(req)}
                               disabled={isSuspended}
@@ -734,7 +742,7 @@ export const MyRequests = () => {
                             </button>
                           )}
 
-                          {s === 'accepted' && isFailed && (
+                          {(s === 'accepted' || s === 'approved') && isFailed && (
                             <button
                               onClick={() => !isSuspended && setActivePaymentReq(req)}
                               disabled={isSuspended}
@@ -810,7 +818,7 @@ export const MyRequests = () => {
                     <div>
                       <span className="text-[10px] text-slate-400 block uppercase">Payment</span>
                       <span className={`font-bold ${isPaid ? 'text-emerald-700' : isFailed ? 'text-rose-600' : 'text-amber-700'}`}>
-                        {isPaid ? 'Paid' : isFailed ? 'Failed' : s === 'accepted' ? 'Pending' : '—'}
+                        {isPaid ? 'Paid' : isFailed ? 'Failed' : (s === 'accepted' || s === 'approved') ? 'Pending' : '—'}
                       </span>
                     </div>
                   </div>
@@ -819,7 +827,7 @@ export const MyRequests = () => {
                     <span className="font-mono text-[11px]">{formatDate(req.requestDate)}</span>
                     
                     <div className="flex items-center gap-2">
-                      {s === 'accepted' && !isPaid && !isFailed && (
+                      {(s === 'accepted' || s === 'approved') && !isPaid && !isFailed && (
                         <button
                           onClick={() => !isSuspended && setActivePaymentReq(req)}
                           className="px-3 py-1 bg-emerald-600 text-white rounded-lg font-bold text-xs"

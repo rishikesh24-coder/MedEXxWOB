@@ -60,6 +60,7 @@ export const paymentService = {
   async getGatewayConfig() {
     try {
       const res = await fetch(`${API_BASE_URL}/payments/config`, {
+        method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           ...getAuthHeader(),

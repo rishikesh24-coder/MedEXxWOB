@@ -42,10 +42,9 @@ export const AdminHospitals = () => {
   const medicines = getStoredItem(KEYS.MEDICINES, []);
 
   // DERIVE APPROVED HOSPITALS ONLY (Req: Separate Approved Hospitals from Verification)
-  // This page must show ONLY hospitals that have already been approved by an Admin.
   const approvedHospitals = useMemo(() => {
     return hospitals.filter((h) => {
-      const s = (h.status || '').toLowerCase();
+      const s = (h.verification_status || h.verificationStatus || (['verified', 'approved'].includes((h.status || '').toLowerCase()) ? h.status : '')).toLowerCase();
       return s === 'verified' || s === 'approved';
     });
   }, [hospitals]);

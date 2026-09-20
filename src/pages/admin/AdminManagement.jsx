@@ -57,11 +57,11 @@ export const AdminManagement = () => {
       await dispatch(updateTransferMilestone({
         txnId: editingTransfer.transactionId,
         status: newTransferStatus,
-      }));
+      })).unwrap();
       toast.success(`Updated transfer milestone to "${newTransferStatus}"`);
       setEditingTransfer(null);
     } catch (err) {
-      toast.error('Failed to update transfer status');
+      toast.error(err?.message || err || 'Failed to update transfer status');
     }
   };
 
@@ -72,11 +72,11 @@ export const AdminManagement = () => {
       await dispatch(updateDisposalMilestone({
         id: editingDisposal.id,
         status: newDisposalStatus,
-      }));
+      })).unwrap();
       toast.success(`Updated disposal status to "${newDisposalStatus}"`);
       setEditingDisposal(null);
     } catch (err) {
-      toast.error('Failed to update disposal milestone');
+      toast.error(err?.message || err || 'Failed to update disposal milestone');
     }
   };
 

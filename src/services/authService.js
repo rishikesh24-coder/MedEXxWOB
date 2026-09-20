@@ -459,6 +459,14 @@ export const authService = {
       });
     }
     localStorage.removeItem(KEYS.AUTH);
+    // Tenant data isolation: Purge tenant-scoped cached data
+    localStorage.removeItem(KEYS.MEDICINES);
+    localStorage.removeItem(KEYS.REQUESTS);
+    localStorage.removeItem(KEYS.TRACKING);
+    localStorage.removeItem(KEYS.ALERTS);
+    localStorage.removeItem(KEYS.FEEDBACKS);
+    localStorage.removeItem(KEYS.PAYMENTS);
+    localStorage.removeItem(KEYS.DISPOSALS);
     return true;
   }
 };

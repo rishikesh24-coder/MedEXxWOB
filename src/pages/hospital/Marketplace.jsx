@@ -75,9 +75,16 @@ export const Marketplace = () => {
     return getLiveHospitalRecord(user?.id) || user;
   }, [user]);
 
-  const currentStatus = (liveHospital?.status || user?.status || 'verified').toLowerCase();
-  const isOperationalLocked = currentStatus !== 'verified';
+  const currentVerification = (
+    liveHospital?.verification_status ||
+    liveHospital?.verificationStatus ||
+    (['verified', 'approved', 'pending', 'pending_approval', 'under_review', 'rejected'].includes((liveHospital?.status || '').toLowerCase())
+      ? liveHospital.status
+      : (user?.verification_status || 'verified'))
+  ).toLowerCase();
+  const currentStatus = (liveHospital?.status || user?.status || 'active').toLowerCase();
   const isSuspended = currentStatus === 'suspended';
+  const isOperationalLocked = (currentVerification !== 'verified' && currentVerification !== 'approved') || isSuspended || currentStatus === 'inactive';
 
   const [search, setSearch] = useState('');
   const [powerFilter, setPowerFilter] = useState('');
@@ -144,10 +151,12 @@ export const Marketplace = () => {
 
   const handleRequisitionSubmit = async ({ medicine, quantity, notes, finalUnitPrice, totalAmount }) => {
     if (isOperationalLocked) {
-      if (currentStatus === 'pending' || currentStatus === 'under_review') {
+      if (currentVerification === 'pending' || currentVerification === 'under_review' || currentVerification === 'pending_approval') {
         toast.error('Your hospital registration is currently under review. Ordering medicines is restricted until verified.');
-      } else if (currentStatus === 'suspended') {
+      } else if (isSuspended) {
         toast.error('Your hospital account is currently suspended. Operational transactions are locked.');
+      } else if (currentStatus === 'inactive') {
+        toast.error('Your hospital account is currently inactive. Operational transactions are locked.');
       } else {
         toast.error('Your hospital registration was rejected. Operational transactions are locked.');
       }
@@ -674,20 +683,20 @@ export const Marketplace = () => {
       {/* Compliance Status Notice */}
       {isOperationalLocked && (
         <div className={`p-4 rounded-2xl border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs ${
-          currentStatus === 'pending' || currentStatus === 'under_review'
+          currentVerification === 'pending' || currentVerification === 'under_review' || currentVerification === 'pending_approval'
             ? 'bg-amber-500/10 border-amber-500/30 text-amber-950'
-            : currentStatus === 'suspended'
+            : isSuspended
             ? 'bg-purple-500/10 border-purple-500/30 text-purple-950'
             : 'bg-rose-500/10 border-rose-500/30 text-rose-950'
         }`}>
           <div>
             <div className="font-bold text-sm">
-              Medicine Exchange Restricted • Facility Status: <span className="capitalize">{currentStatus.replace('_', ' ')}</span>
+              Medicine Exchange Restricted • Facility Status: <span className="capitalize">{currentVerification.replace('_', ' ')}</span>
             </div>
             <p className="text-xs opacity-90 mt-0.5">
-              {currentStatus === 'pending' || currentStatus === 'under_review' ? (
+              {currentVerification === 'pending' || currentVerification === 'under_review' || currentVerification === 'pending_approval' ? (
                 <span>Requisition requests and medicine lot exchanges are restricted until your hospital accreditation is verified by MEDEX Central Administration.</span>
-              ) : currentStatus === 'suspended' ? (
+              ) : isSuspended ? (
                 <span>Your facility account has been suspended ({liveHospital?.suspensionReason || 'Administrative hold'}). Requisition orders are disabled.</span>
               ) : (
                 <span>Your facility registration was rejected ({liveHospital?.rejectionReason || 'Documentation declined'}). Requisition orders are disabled.</span>
