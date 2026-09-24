@@ -37,7 +37,7 @@ const resolveHospitalId = (hospitalIdParam) => {
   const authHospitalId = user?.hospitalId || user?.id;
 
   if (user?.role === 'hospital') {
-    return authHospitalId || null;
+    return authHospitalId || hospitalIdParam || null;
   }
 
   if (user?.role === 'admin') {
@@ -2453,6 +2453,7 @@ export const hospitalService = {
     if (params.startDate) query.append('startDate', params.startDate);
     if (params.endDate) query.append('endDate', params.endDate);
     if (params.medicineId) query.append('medicineId', params.medicineId);
+    if (params.hospitalId) query.append('hospitalId', params.hospitalId);
 
     if (token) {
       try {
@@ -2464,42 +2465,150 @@ export const hospitalService = {
         });
         if (res.ok) {
           const body = await res.json();
-          if (body?.data) return body.data;
+          if (body?.data && Array.isArray(body.data.trades) && body.data.trades.length > 0) {
+            return body.data;
+          }
         }
       } catch (err) {
-        console.warn('Failed to fetch trades from backend:', err.message);
+        console.warn('Backend trades query unavailable, utilizing storage ledger:', err.message);
       }
     }
 
-    // Client fallback
+    // Authoritative client/storage derivation
     const requests = getStoredItem(KEYS.REQUESTS, []);
+    const hospitals = getStoredItem(KEYS.HOSPITALS, []);
+    const hospitalsMap = Object.fromEntries(hospitals.map((h) => [h.id, h]));
     const hospitalId = resolveHospitalId(params.hospitalId);
-    let filtered = requests.filter((r) => r.fromHospitalId === hospitalId || r.toHospitalId === hospitalId);
-    if (params.status && params.status !== 'all') {
-      filtered = filtered.filter((r) => (r.status || '').toLowerCase() === params.status.toLowerCase());
+
+    let filtered = requests.filter((r) => {
+      const buyerId = r.fromHospitalId || r.from_hospital_id;
+      const sellerId = r.toHospitalId || r.to_hospital_id;
+      return buyerId === hospitalId || sellerId === hospitalId;
+    });
+
+    // 1. Report Type filter (Purchases vs Sales)
+    const rType = (params.reportType || params.type || '').toUpperCase();
+    if (rType === 'PURCHASES') {
+      filtered = filtered.filter((r) => (r.fromHospitalId || r.from_hospital_id) === hospitalId);
+    } else if (rType === 'SALES') {
+      filtered = filtered.filter((r) => (r.toHospitalId || r.to_hospital_id) === hospitalId);
     }
-    return {
-      trades: filtered.map((r) => ({
+
+    // 2. Status filter
+    if (params.status && params.status !== 'all') {
+      const sFilter = params.status.toLowerCase().trim();
+      filtered = filtered.filter((r) => {
+        const s = String(r.status || '').toLowerCase().trim();
+        if (sFilter === 'completed') {
+          return ['completed', 'delivered'].includes(s);
+        }
+        if (sFilter === 'paid') {
+          return s === 'paid';
+        }
+        if (sFilter === 'in_transit' || sFilter === 'in transit') {
+          return ['in transit', 'in_transit', 'dispatched'].includes(s);
+        }
+        if (sFilter === 'accepted') {
+          return ['accepted', 'preparing'].includes(s);
+        }
+        if (sFilter === 'cancelled') {
+          return ['cancelled', 'rejected', 'expired'].includes(s);
+        }
+        return s === sFilter;
+      });
+    }
+
+    // 3. Date range filter
+    const startBound = params.startDate ? new Date(params.startDate + 'T00:00:00.000Z') : null;
+    const endBound = params.endDate ? new Date(params.endDate + 'T23:59:59.999Z') : null;
+
+    if (startBound || endBound) {
+      filtered = filtered.filter((r) => {
+        const rawDate = r.transactionDate || r.transaction_date || r.requestDate || r.orderDate || r.createdAt || r.paidDate;
+        if (!rawDate) return true;
+        const d = new Date(rawDate);
+        if (isNaN(d.getTime())) return true;
+        if (startBound && d < startBound) return false;
+        if (endBound && d > endBound) return false;
+        return true;
+      });
+    }
+
+    // 4. Search query filter
+    if (params.search) {
+      const q = String(params.search).toLowerCase().trim();
+      if (q) {
+        filtered = filtered.filter((r) => {
+          const medName = String(r.medicineName || r.medicine_name || r.name || '').toLowerCase();
+          const batch = String(r.batchNo || r.batch_no || r.batchNumber || '').toLowerCase();
+          const txnId = String(r.transactionId || r.transaction_id || r.orderId || r.id || '').toLowerCase();
+          const buyerId = r.fromHospitalId || r.from_hospital_id;
+          const sellerId = r.toHospitalId || r.to_hospital_id;
+          const buyerName = String(r.fromHospitalName || r.from_hospital_name || hospitalsMap[buyerId]?.name || '').toLowerCase();
+          const sellerName = String(r.toHospitalName || r.to_hospital_name || hospitalsMap[sellerId]?.name || '').toLowerCase();
+          return medName.includes(q) || batch.includes(q) || txnId.includes(q) || buyerName.includes(q) || sellerName.includes(q);
+        });
+      }
+    }
+
+    // 5. Chronological sort (newest transactions first)
+    filtered.sort((a, b) => {
+      const dateA = new Date(a.transactionDate || a.transaction_date || a.requestDate || a.orderDate || a.createdAt || a.paidDate || 0).getTime();
+      const dateB = new Date(b.transactionDate || b.transaction_date || b.requestDate || b.orderDate || b.createdAt || b.paidDate || 0).getTime();
+      return dateB - dateA;
+    });
+
+    // 6. Map to standardized CDSCO trade ledger model
+    const allTrades = filtered.map((r) => {
+      const buyerId = r.fromHospitalId || r.from_hospital_id;
+      const sellerId = r.toHospitalId || r.to_hospital_id;
+      const isBuyer = buyerId === hospitalId;
+      const buyerHospitalName = r.fromHospitalName || r.from_hospital_name || hospitalsMap[buyerId]?.name || (isBuyer ? 'My Hospital' : 'Procuring Facility');
+      const sellerHospitalName = r.toHospitalName || r.to_hospital_name || hospitalsMap[sellerId]?.name || (!isBuyer ? 'My Hospital' : 'Supplying Facility');
+      const qty = Number(r.quantity || r.requestedQuantity || 0);
+      const unitPrice = Number(r.unitFinalPrice ?? r.unitOriginalPrice ?? r.unitPrice ?? (r.totalAmount && qty ? r.totalAmount / qty : 0));
+      const totalAmount = Number(r.finalAmount ?? r.totalAmount ?? (qty * unitPrice));
+
+      return {
         id: r.id,
-        transactionId: r.transactionId,
-        orderId: r.orderId,
-        buyerHospitalId: r.fromHospitalId,
-        buyerHospitalName: r.fromHospitalName,
-        sellerHospitalId: r.toHospitalId,
-        sellerHospitalName: r.toHospitalName,
-        medicineName: r.medicineName,
-        batchNo: r.batchNo,
-        quantity: r.quantity,
-        unitPrice: r.unitFinalPrice || r.unitOriginalPrice || 0,
-        totalAmount: r.totalAmount,
-        status: r.status,
-        transactionDate: r.requestDate || r.createdAt,
-      })),
+        transactionId: r.transactionId || r.transaction_id || r.orderId || r.id,
+        orderId: r.orderId || r.order_id || null,
+        buyerHospitalId: buyerId,
+        buyer_hospital_id: buyerId,
+        buyerHospitalName,
+        buyer_hospital_name: buyerHospitalName,
+        sellerHospitalId: sellerId,
+        seller_hospital_id: sellerId,
+        sellerHospitalName,
+        seller_hospital_name: sellerHospitalName,
+        medicineName: r.medicineName || r.medicine_name || 'Generic Medicine',
+        medicine_name: r.medicineName || r.medicine_name || 'Generic Medicine',
+        batchNo: r.batchNo || r.batch_no || r.batchNumber || 'N/A',
+        batch_no: r.batchNo || r.batch_no || r.batchNumber || 'N/A',
+        quantity: qty,
+        unitPrice,
+        unit_price: unitPrice,
+        totalAmount,
+        total_amount: totalAmount,
+        status: r.status || 'pending',
+        transactionDate: r.transactionDate || r.transaction_date || r.requestDate || r.orderDate || r.createdAt || new Date().toISOString(),
+      };
+    });
+
+    const page = Math.max(1, Number(params.page) || 1);
+    const limit = Math.max(1, Number(params.limit) || 10);
+    const total = allTrades.length;
+    const pages = Math.max(1, Math.ceil(total / limit));
+    const offset = (page - 1) * limit;
+    const paginatedTrades = allTrades.slice(offset, offset + limit);
+
+    return {
+      trades: paginatedTrades,
       pagination: {
-        total: filtered.length,
-        page: Number(params.page) || 1,
-        limit: Number(params.limit) || 20,
-        pages: Math.ceil(filtered.length / (Number(params.limit) || 20)) || 1,
+        total,
+        page,
+        limit,
+        pages,
       }
     };
   },
@@ -2523,7 +2632,7 @@ export const hospitalService = {
         console.warn('Failed to fetch trade detail from backend:', err.message);
       }
     }
-    const trades = await this.getTrades({ limit: 100 });
+    const trades = await this.getTrades({ limit: 1000 });
     return (trades?.trades || []).find((t) => t.id === id || t.transactionId === id) || null;
   },
 
@@ -2545,29 +2654,176 @@ export const hospitalService = {
         });
         if (res.ok) {
           const body = await res.json();
-          if (body?.data) return body.data;
+          if (body?.data && (body.data.hasData || (body.data.metrics && body.data.metrics.totalTrades > 0))) {
+            return body.data;
+          }
         }
       } catch (err) {
-        console.warn('Failed to fetch trading summary:', err.message);
+        console.warn('Backend trading summary unavailable, computing from storage:', err.message);
       }
     }
 
+    const hospitalId = resolveHospitalId(params.hospitalId);
+    if (!hospitalId) {
+      return {
+        metrics: {
+          totalTrades: 0,
+          totalPurchases: 0,
+          totalSales: 0,
+          totalQuantityPurchased: 0,
+          totalQuantitySold: 0,
+          totalPurchaseAmount: 0,
+          totalSalesAmount: 0,
+          completedTrades: 0,
+          cancelledTrades: 0,
+          pendingTrades: 0,
+          ratios: { purchasesPercentage: 0, salesPercentage: 0 },
+        },
+        hasData: false,
+        timeSeries: [],
+      };
+    }
+
+    const requests = getStoredItem(KEYS.REQUESTS, []);
+    let trades = requests.filter((r) => {
+      const buyerId = r.fromHospitalId || r.from_hospital_id;
+      const sellerId = r.toHospitalId || r.to_hospital_id;
+      return buyerId === hospitalId || sellerId === hospitalId;
+    });
+
+    // Apply date bounds
+    const startBound = params.startDate ? new Date(params.startDate + 'T00:00:00.000Z') : null;
+    const endBound = params.endDate ? new Date(params.endDate + 'T23:59:59.999Z') : null;
+
+    if (startBound || endBound) {
+      trades = trades.filter((r) => {
+        const rawDate = r.transactionDate || r.transaction_date || r.requestDate || r.orderDate || r.createdAt || r.paidDate;
+        if (!rawDate) return true;
+        const d = new Date(rawDate);
+        if (isNaN(d.getTime())) return true;
+        if (startBound && d < startBound) return false;
+        if (endBound && d > endBound) return false;
+        return true;
+      });
+    }
+
+    let totalPurchasesCount = 0;
+    let totalSalesCount = 0;
+    let totalQuantityPurchased = 0;
+    let totalQuantitySold = 0;
+    let totalPurchaseAmount = 0;
+    let totalSalesAmount = 0;
+    let completedTrades = 0;
+    let cancelledTrades = 0;
+    let pendingTrades = 0;
+
+    const monthlyMap = {};
+    const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+    trades.forEach((t) => {
+      const buyerId = t.fromHospitalId || t.from_hospital_id;
+      const isBuyer = buyerId === hospitalId;
+      const status = String(t.status || '').toLowerCase().trim();
+      const qty = Number(t.quantity || t.requestedQuantity || 0);
+      const unitPrice = Number(t.unitFinalPrice ?? t.unitOriginalPrice ?? t.unitPrice ?? (t.totalAmount && qty ? t.totalAmount / qty : 0));
+      const amount = Number(t.finalAmount ?? t.totalAmount ?? (qty * unitPrice));
+
+      if (['completed', 'delivered'].includes(status)) {
+        completedTrades++;
+      } else if (['cancelled', 'rejected', 'expired'].includes(status)) {
+        cancelledTrades++;
+      } else {
+        pendingTrades++;
+      }
+
+      const rawDate = t.transactionDate || t.transaction_date || t.requestDate || t.orderDate || t.createdAt || t.paidDate;
+      const d = rawDate ? new Date(rawDate) : new Date();
+      const validDate = !isNaN(d.getTime()) ? d : new Date();
+      const sortKey = `${validDate.getFullYear()}-${String(validDate.getMonth() + 1).padStart(2, '0')}`;
+      const displayMonth = `${MONTH_NAMES[validDate.getMonth()]} ${validDate.getFullYear()}`;
+
+      if (!monthlyMap[sortKey]) {
+        monthlyMap[sortKey] = {
+          sortKey,
+          month: displayMonth,
+          purchases: 0,
+          sales: 0,
+          purchaseUnits: 0,
+          saleUnits: 0,
+        };
+      }
+
+      if (isBuyer) {
+        totalPurchasesCount++;
+        totalPurchaseAmount += amount;
+        totalQuantityPurchased += qty;
+        monthlyMap[sortKey].purchases += amount;
+        monthlyMap[sortKey].purchaseUnits += qty;
+      } else {
+        totalSalesCount++;
+        totalSalesAmount += amount;
+        totalQuantitySold += qty;
+        monthlyMap[sortKey].sales += amount;
+        monthlyMap[sortKey].saleUnits += qty;
+      }
+    });
+
+    const totalTradesCount = totalPurchasesCount + totalSalesCount;
+
+    const purchasesPercentage = totalTradesCount > 0 
+      ? Math.round((totalPurchasesCount / totalTradesCount) * 1000) / 10 
+      : 0;
+    const salesPercentage = totalTradesCount > 0 
+      ? Math.round((100 - purchasesPercentage) * 10) / 10 
+      : 0;
+
+    const totalVolume = totalPurchaseAmount + totalSalesAmount;
+    const purchasesVolumePercentage = totalVolume > 0
+      ? Math.round((totalPurchaseAmount / totalVolume) * 1000) / 10
+      : 0;
+    const salesVolumePercentage = totalVolume > 0
+      ? Math.round((100 - purchasesVolumePercentage) * 10) / 10
+      : 0;
+
+    const timeSeries = Object.values(monthlyMap)
+      .sort((a, b) => a.sortKey.localeCompare(b.sortKey))
+      .map(({ sortKey, ...rest }) => rest);
+
     return {
+      hospitalId,
+      dateRange: { startDate: params.startDate || null, endDate: params.endDate || null },
+      totalTrades: totalTradesCount,
+      totalPurchases: totalPurchasesCount,
+      totalSales: totalSalesCount,
+      totalQuantityPurchased,
+      totalQuantitySold,
+      totalPurchaseAmount: Math.round(totalPurchaseAmount * 100) / 100,
+      totalSalesAmount: Math.round(totalSalesAmount * 100) / 100,
+      completedTrades,
+      cancelledTrades,
+      pendingTrades,
+      purchasesPercentage,
+      salesPercentage,
       metrics: {
-        totalTrades: 0,
-        totalPurchases: 0,
-        totalSales: 0,
-        totalQuantityPurchased: 0,
-        totalQuantitySold: 0,
-        totalPurchaseAmount: 0,
-        totalSalesAmount: 0,
-        completedTrades: 0,
-        cancelledTrades: 0,
-        pendingTrades: 0,
-        ratios: { purchasesPercentage: 0, salesPercentage: 0 },
+        totalTrades: totalTradesCount,
+        totalPurchases: totalPurchasesCount,
+        totalSales: totalSalesCount,
+        totalQuantityPurchased,
+        totalQuantitySold,
+        totalPurchaseAmount: Math.round(totalPurchaseAmount * 100) / 100,
+        totalSalesAmount: Math.round(totalSalesAmount * 100) / 100,
+        completedTrades,
+        cancelledTrades,
+        pendingTrades,
+        ratios: {
+          purchasesPercentage,
+          salesPercentage,
+          purchasesVolumePercentage,
+          salesVolumePercentage,
+        },
       },
-      hasData: false,
-      timeSeries: [],
+      hasData: totalTradesCount > 0,
+      timeSeries,
     };
   },
 
@@ -2579,19 +2835,89 @@ export const hospitalService = {
     if (params.endDate) query.append('endDate', params.endDate);
     if (params.status && params.status !== 'all') query.append('status', params.status);
     if (params.search) query.append('search', params.search);
+    if (params.hospitalId) query.append('hospitalId', params.hospitalId);
 
-    const url = `${API_BASE_URL}/trades/export?${query.toString()}`;
-    const res = await fetch(url, {
-      headers: {
-        Authorization: `Bearer ${token}`,
+    if (token) {
+      try {
+        const url = `${API_BASE_URL}/trades/export?${query.toString()}`;
+        const res = await fetch(url, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          }
+        });
+
+        if (res.ok) {
+          const blob = await res.blob();
+          const downloadUrl = window.URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = downloadUrl;
+          const dateStr = new Date().toISOString().split('T')[0];
+          a.download = `medex-trading-report-${dateStr}.csv`;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          window.URL.revokeObjectURL(downloadUrl);
+          return;
+        }
+      } catch (err) {
+        console.warn('Backend CSV export unavailable, falling back to local storage export:', err.message);
       }
-    });
-
-    if (!res.ok) {
-      throw new Error(`Export failed with HTTP status ${res.status}`);
     }
 
-    const blob = await res.blob();
+    // Client fallback: generate CSV directly from local storage trades
+    const result = await this.getTrades({
+      ...params,
+      page: 1,
+      limit: 10000,
+    });
+
+    const trades = result.trades || [];
+    const headers = [
+      'Trade ID',
+      'Operation',
+      'Medicine Name',
+      'Batch Number',
+      'Quantity (Units)',
+      'Unit Price (INR)',
+      'Total Amount (INR)',
+      'Counterparty Hospital',
+      'Status',
+      'Transaction Date'
+    ];
+
+    const currentHospId = resolveHospitalId(params.hospitalId);
+
+    const escapeCsv = (val) => {
+      const str = String(val ?? '');
+      if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+        return `"${str.replace(/"/g, '""')}"`;
+      }
+      return str;
+    };
+
+    const rows = trades.map((t) => {
+      const isBuyer = (t.buyerHospitalId || t.buyer_hospital_id) === currentHospId;
+      const counterparty = isBuyer
+        ? (t.sellerHospitalName || t.seller_hospital_name || 'Supplying Facility')
+        : (t.buyerHospitalName || t.buyer_hospital_name || 'Procuring Facility');
+      const dateStr = (t.transactionDate || t.transaction_date || '').split('T')[0];
+
+      return [
+        escapeCsv(t.transactionId || t.id),
+        escapeCsv(isBuyer ? 'Purchase' : 'Sale'),
+        escapeCsv(t.medicineName || ''),
+        escapeCsv(t.batchNo || 'N/A'),
+        escapeCsv(t.quantity || 0),
+        escapeCsv(t.unitPrice || 0),
+        escapeCsv(t.totalAmount || 0),
+        escapeCsv(counterparty),
+        escapeCsv(t.status || ''),
+        escapeCsv(dateStr),
+      ].join(',');
+    });
+
+    const csvContent = '\uFEFF' + [headers.join(','), ...rows].join('\r\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const downloadUrl = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = downloadUrl;

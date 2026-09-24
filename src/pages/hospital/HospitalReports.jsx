@@ -48,7 +48,16 @@ const STATUS_COLORS = {
 
 export const HospitalReports = () => {
   const { user } = useSelector((state) => state.auth);
-  const hospitalId = user?.hospitalId || user?.id;
+  const sessionHospitalId = useMemo(() => {
+    try {
+      const raw = localStorage.getItem('sms_auth_session');
+      const parsed = raw ? JSON.parse(raw) : null;
+      return parsed?.user?.hospitalId || parsed?.user?.id || null;
+    } catch {
+      return null;
+    }
+  }, []);
+  const hospitalId = user?.hospitalId || user?.id || sessionHospitalId;
 
   // Filters State
   const [dateFilter, setDateFilter] = useState('30D'); // 'TODAY' | '7D' | '30D' | '90D' | 'CUSTOM'
@@ -108,6 +117,7 @@ export const HospitalReports = () => {
           search: searchQuery,
           startDate: dateBounds.startDate,
           endDate: dateBounds.endDate,
+          reportType,
         }),
         hospitalService.getTradingSummary({
           hospitalId,
@@ -130,7 +140,7 @@ export const HospitalReports = () => {
 
   useEffect(() => {
     loadReports();
-  }, [hospitalId, dateFilter, customStart, customEnd, statusFilter, page]);
+  }, [hospitalId, dateFilter, customStart, customEnd, statusFilter, page, reportType]);
 
   // Handle Search submit / debounce
   const handleSearchSubmit = (e) => {
@@ -144,10 +154,12 @@ export const HospitalReports = () => {
     setIsExporting(true);
     try {
       await hospitalService.exportTradesCSV({
+        hospitalId,
         startDate: dateBounds.startDate,
         endDate: dateBounds.endDate,
         status: statusFilter,
         search: searchQuery,
+        reportType,
       });
       toast.success('Trading report exported to CSV');
     } catch (err) {
@@ -314,7 +326,10 @@ export const HospitalReports = () => {
               {['ALL', 'PURCHASES', 'SALES'].map((type) => (
                 <button
                   key={type}
-                  onClick={() => setReportType(type)}
+                  onClick={() => {
+                    setReportType(type);
+                    setPage(1);
+                  }}
                   className={`px-3 py-1 rounded-lg font-bold transition-all ${
                     reportType === type ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
                   }`}
